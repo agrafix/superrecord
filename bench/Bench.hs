@@ -18,6 +18,7 @@ type Ex1 =
 
 r1 :: Rec Ex1
 r1 =
+    copyRec $
     #f1 := "Hi"
     & #f2 := 213
     & #f3 := True

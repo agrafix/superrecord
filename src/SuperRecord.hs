@@ -15,7 +15,7 @@
 module SuperRecord
     ( -- * Basics
       (:=)(..)
-    , Rec, rnil, rcons, (&)
+    , Rec, rnil, rcons, (&), copyRec
     , Has, get, set
       -- * Reflection
     , reflectRec,  RecApply(..)
@@ -85,6 +85,12 @@ instance
 
 instance RecJsonParse lts => FromJSON (Rec lts) where
     parseJSON = recJsonParser
+
+-- | Yield the record but force it not to retain any extra memory, possibly by copying it.
+-- See 'V.force'
+copyRec :: Rec lts -> Rec lts
+copyRec (Rec x) = Rec (V.force x)
+{-# INLINE copyRec #-}
 
 -- | An empty record
 rnil :: Rec '[]
