@@ -15,7 +15,7 @@
 module SuperRecord
     ( (:=)(..)
     , Rec, rnil, rcons, (&)
-    , get, set
+    , Has, get, set
     , RecTyIdxH, RecIdxTyH
     , reflectRec,  RecApply(..)
     , showRec, RecKeys(..)
@@ -48,7 +48,7 @@ instance (Ord value) => Ord (label := value) where
 instance (Show t) =>
          Show (l := t) where
   showsPrec p (l := t) =
-    showParen (p > 10) (showString ("#" ++ (symbolVal l) ++ " := " ++ show t))
+      showParen (p > 10) (showString ("#" ++ symbolVal l ++ " := " ++ show t))
 
 -- | A proxy witness for a label. Very similar to 'Proxy', but needed to implement
 -- a non-orphan 'IsLabel' instance
@@ -101,13 +101,16 @@ type family RecIdxTyH (i :: Nat) (r :: Nat) (lts :: [*]) :: * where
     RecIdxTyH idx other '[] =
         TypeError ('Text "Could not find index " ':<>: 'ShowType idx)
 
-get ::
-    forall l v lts idx.
-    ( RecTyIdxH 0 l lts ~ idx
-    , RecIdxTyH idx 0 lts ~ v
-    , KnownNat idx
-    , Typeable v
-    ) => FldProxy l -> Rec lts -> v
+-- | State that a record contains a label. Leave idx a free variable, used internally
+type Has l lts idx v =
+   ( RecTyIdxH 0 l lts ~ idx
+   , RecIdxTyH idx 0 lts ~ v
+   , KnownNat idx
+   , Typeable v
+   )
+
+-- | Get an existing record field
+get :: forall l v lts idx. Has l lts idx v => FldProxy l -> Rec lts -> v
 get _ (Rec vec) =
     let readAt = fromIntegral $ natVal (Proxy :: Proxy idx)
         val = V.unsafeIndex vec readAt
@@ -121,20 +124,15 @@ get _ (Rec vec) =
          Just v -> v
 {-# INLINEABLE get #-}
 
-set ::
-    forall l v lts idx.
-    ( RecTyIdxH 0 l lts ~ idx
-    , RecIdxTyH idx 0 lts ~ v
-    , KnownNat idx
-    , Typeable v
-    ) => FldProxy l -> v -> Rec lts -> Rec lts
+-- | Update an existing record field
+set :: forall l v lts idx. Has l lts idx v => FldProxy l -> v -> Rec lts -> Rec lts
 set _ val r =
     let setAt = fromIntegral $ natVal (Proxy :: Proxy idx)
         dynVal = toDyn val
     in Rec (V.modify (\v -> VM.unsafeWrite v setAt dynVal) $ unRec r)
 {-# INLINEABLE set #-}
 
-
+-- | Get keys of a record on value and type level
 class RecKeys (lts :: [*]) where
     type RecKeysT lts :: [Symbol]
     recKeys :: t lts -> [String]
@@ -166,6 +164,7 @@ reflectRec _ f r =
 showRec :: forall lts. (RecApply lts lts Show (String, String)) => Rec lts -> [(String, String)]
 showRec = reflectRec @Show Proxy (\k v -> (k, show v))
 
+-- | Machinery needed to implement 'reflectRec'
 class RecApply (rts :: [*]) (lts :: [*]) c r where
     recApply :: (forall a. Dict (c a) -> String -> a -> r) -> Rec rts -> Proxy lts -> [r]
 
@@ -175,10 +174,7 @@ instance RecApply rts '[] c r where
 instance
     ( KnownSymbol l
     , RecApply rts (RemoveAccessTo l lts) c r
-    , RecTyIdxH 0 l rts ~ idx
-    , RecIdxTyH idx 0 rts ~ v
-    , Typeable v
-    , KnownNat idx
+    , Has l rts idx v
     , c v
     ) => RecApply rts (l := t ': lts) c r where
     recApply f r (_ :: Proxy (l := t ': lts)) =
@@ -190,6 +186,7 @@ instance
             pNext = Proxy
         in (res : recApply f r pNext)
 
+-- | Machinery to implement equality
 class RecEq (rts :: [*]) (lts :: [*]) where
     recEq :: Rec rts -> Rec rts -> Proxy lts -> Bool
 
@@ -198,9 +195,8 @@ instance RecEq rts '[] where
 
 instance
     ( RecEq rts (RemoveAccessTo l lts)
-    , RecTyIdxH 0 l rts ~ idx
-    , RecIdxTyH idx 0 rts ~ v
-    , Typeable v, Eq v, KnownNat idx
+    , Has l rts idx v
+    , Eq v
     ) => RecEq rts (l := t ': lts) where
     recEq r1 r2 (_ :: Proxy (l := t ': lts)) =
        let lbl :: FldProxy l

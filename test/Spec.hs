@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE DataKinds #-}
@@ -13,15 +15,23 @@ r1 =
     & #int := 213
     & rnil
 
+r2 :: Rec '["foo" := String]
+r2 = #foo := "He" & rnil
+
+polyFun :: Has "foo" lts idx String => Rec lts -> String
+polyFun = get #foo
+
 main :: IO ()
 main = hspec $
     do it "getter works" $
            do get #foo r1 `shouldBe` "Hi"
               get #int r1 `shouldBe` 213
+              polyFun r1 `shouldBe` "Hi"
+              polyFun r2 `shouldBe` "He"
        it "setter works" $
-           do let r2 = set #foo "Hey" r1
+           do let r1u = set #foo "Hey" r1
               get #foo r1 `shouldBe` "Hi"
-              get #foo r2 `shouldBe` "Hey"
+              get #foo r1u `shouldBe` "Hey"
        it "getting record keys works" $
            do let vals = recKeys r1
               vals `shouldBe` ["foo", "int"]
