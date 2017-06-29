@@ -15,9 +15,11 @@
 module SuperRecord
     ( (:=)(..)
     , Rec, rnil, rcons, (&)
-    , get, set, RecKeys(..)
+    , get, set
     , RecTyIdxH, RecIdxTyH
-    , reflectRec, showRec
+    , reflectRec,  RecApply(..)
+    , showRec, RecKeys(..)
+    , RecEq(..)
     )
 where
 
@@ -61,8 +63,11 @@ instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
 newtype Rec (lts :: [*])
    = Rec { unRec :: V.Vector Dynamic }
 
-instance (MkRecAppRec lts lts Show (String, String)) => Show (Rec lts) where
+instance (RecApply lts lts Show (String, String)) => Show (Rec lts) where
     show = show . showRec
+
+instance RecEq lts lts => Eq (Rec lts) where
+    (==) (a :: Rec lts) (b :: Rec lts) = recEq a b (Proxy :: Proxy lts)
 
 -- | An empty record
 rnil :: Rec '[]
@@ -147,41 +152,65 @@ instance (KnownSymbol l, RecKeys lts) => RecKeys (l := t ': lts) where
             more = Proxy
         in (symbolVal lbl : recKeys more)
 
+-- | Apply a function to each key element pair for a record
 reflectRec ::
-    forall c r lts. (MkRecAppRec lts lts c r)
+    forall c r lts. (RecApply lts lts c r)
     => Proxy c
     -> (forall a. c a => String -> a -> r)
     -> Rec lts
     -> [r]
 reflectRec _ f r =
-    mkRecAppRec (\(Dict :: Dict (c a)) s v -> f s v) r (Proxy :: Proxy lts)
+    recApply (\(Dict :: Dict (c a)) s v -> f s v) r (Proxy :: Proxy lts)
 
-showRec :: forall lts. (MkRecAppRec lts lts Show (String, String)) => Rec lts -> [(String, String)]
+-- | Convert all elements of a record to a 'String'
+showRec :: forall lts. (RecApply lts lts Show (String, String)) => Rec lts -> [(String, String)]
 showRec = reflectRec @Show Proxy (\k v -> (k, show v))
 
-class MkRecAppRec (rts :: [*]) (lts :: [*]) c r where
-    mkRecAppRec :: (forall a. Dict (c a) -> String -> a -> r) -> Rec rts -> Proxy lts -> [r]
+class RecApply (rts :: [*]) (lts :: [*]) c r where
+    recApply :: (forall a. Dict (c a) -> String -> a -> r) -> Rec rts -> Proxy lts -> [r]
 
-instance MkRecAppRec rts '[] c r where
-    mkRecAppRec _ _ _ = []
+instance RecApply rts '[] c r where
+    recApply _ _ _ = []
 
 instance
     ( KnownSymbol l
-    , MkRecAppRec rts (RemoveAccessTo l lts) c r
+    , RecApply rts (RemoveAccessTo l lts) c r
     , RecTyIdxH 0 l rts ~ idx
     , RecIdxTyH idx 0 rts ~ v
     , Typeable v
     , KnownNat idx
     , c v
-    ) => MkRecAppRec rts (l := t ': lts) c r where
-    mkRecAppRec f r (_ :: Proxy (l := t ': lts)) =
+    ) => RecApply rts (l := t ': lts) c r where
+    recApply f r (_ :: Proxy (l := t ': lts)) =
         let lbl :: FldProxy l
             lbl = FldProxy
             val = get lbl r
             res = f Dict (symbolVal lbl) val
             pNext :: Proxy (RemoveAccessTo l (l := t ': lts))
             pNext = Proxy
-        in (res : mkRecAppRec f r pNext)
+        in (res : recApply f r pNext)
+
+class RecEq (rts :: [*]) (lts :: [*]) where
+    recEq :: Rec rts -> Rec rts -> Proxy lts -> Bool
+
+instance RecEq rts '[] where
+    recEq _ _ _ = True
+
+instance
+    ( RecEq rts (RemoveAccessTo l lts)
+    , RecTyIdxH 0 l rts ~ idx
+    , RecIdxTyH idx 0 rts ~ v
+    , Typeable v, Eq v, KnownNat idx
+    ) => RecEq rts (l := t ': lts) where
+    recEq r1 r2 (_ :: Proxy (l := t ': lts)) =
+       let lbl :: FldProxy l
+           lbl = FldProxy
+           val = get lbl r1
+           val2 = get lbl r2
+           res = val == val2
+           pNext :: Proxy (RemoveAccessTo l (l := t ': lts))
+           pNext = Proxy
+       in res && recEq r1 r2 pNext
 
 type family RemoveAccessTo (l :: Symbol) (lts :: [*]) :: [*] where
     RemoveAccessTo l (l := t ': lts) = RemoveAccessTo l lts
