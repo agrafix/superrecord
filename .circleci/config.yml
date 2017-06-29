@@ -13,7 +13,7 @@ jobs:
           command: 'stack setup'
       - run:
           name: stack install dependencies
-          command: 'stack build --test --only-dependencies'
+          command: 'stack build --test --bench --only-dependencies'
       - save_cache:
           key: stack-cache
           paths:
@@ -25,3 +25,6 @@ jobs:
       - run:
           name: stack test
           command: 'stack test --fast'
+      - run:
+          name: build benchmarks
+          command: 'stack build --fast --bench --no-run-benchmarks'
