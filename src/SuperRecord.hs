@@ -23,10 +23,12 @@ module SuperRecord
     )
 where
 
+import Data.Aeson
 import Data.Constraint
 import Data.Dynamic
 import GHC.OverloadedLabels
 import GHC.TypeLits
+import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as VM
 
@@ -68,6 +70,13 @@ instance (RecApply lts lts Show (String, String)) => Show (Rec lts) where
 
 instance RecEq lts lts => Eq (Rec lts) where
     (==) (a :: Rec lts) (b :: Rec lts) = recEq a b (Proxy :: Proxy lts)
+
+instance
+    ( RecApply lts lts ToJSON (T.Text, Value)
+    , RecApply lts lts ToJSON Series
+    ) => ToJSON (Rec lts) where
+    toJSON = recToValue
+    toEncoding = recToEncoding
 
 -- | An empty record
 rnil :: Rec '[]
@@ -163,6 +172,12 @@ reflectRec _ f r =
 -- | Convert all elements of a record to a 'String'
 showRec :: forall lts. (RecApply lts lts Show (String, String)) => Rec lts -> [(String, String)]
 showRec = reflectRec @Show Proxy (\k v -> (k, show v))
+
+recToValue :: forall lts. (RecApply lts lts ToJSON (T.Text, Value)) => Rec lts -> Value
+recToValue r = toJSON $ reflectRec @ToJSON Proxy (\k v -> (T.pack k, toJSON v)) r
+
+recToEncoding :: forall lts. (RecApply lts lts ToJSON Series) => Rec lts -> Encoding
+recToEncoding r = pairs $ mconcat $ reflectRec @ToJSON Proxy (\k v -> (T.pack k .= v)) r
 
 -- | Machinery needed to implement 'reflectRec'
 class RecApply (rts :: [*]) (lts :: [*]) c r where
