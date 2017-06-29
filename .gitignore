@@ -5,3 +5,4 @@ frontend/bower_components/
 _frontend/
 .DS_Store
 .idea/
+sync.sh
