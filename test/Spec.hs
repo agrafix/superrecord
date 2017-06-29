@@ -36,12 +36,15 @@ main = hspec $
               polyFun r1 `shouldBe` "Hi"
               polyFun r2 `shouldBe` "He"
               get #bar (get #foo rNested) `shouldBe` 213
+              rNested &. #foo &. #bar `shouldBe` 213
        it "setter works" $
            do let r1u = set #foo "Hey" r1
               get #foo r1 `shouldBe` "Hi"
               get #foo r1u `shouldBe` "Hey"
               get #int (set #int 123 r1) `shouldBe` 123
               set #int 213 (set #int 123 r1) `shouldBe` r1
+              setPath (#foo &: #bar &: snil) 123 rNested
+                  `shouldBe` (#foo := (#bar := 123 & rnil) & rnil)
        it "getting record keys works" $
            do let vals = recKeys r1
               vals `shouldBe` ["foo", "int"]

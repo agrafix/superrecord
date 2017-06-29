@@ -99,6 +99,16 @@ main =
         , bench "bookkeeper" $ nf (\r -> r B.?: #f4 B.?: #f41) r1B
         , bench "native" $ nf (n_f41 . n_f4) r1N
         ]
+    , bgroup "set nested"
+        [ bench "superrecord" $
+            nf (\r -> (setPath (#f4 &: #f41 &: snil) "Hello" r) &. #f4 &. #f41) r1
+        , bench "labels" $
+            nf (\r -> L.get #f41 . L.get #f4 $ L.modify #f4 (L.set #f41 "Hello") r) r1L
+        , bench "bookkeeper" $
+            nf (\r -> (r B.& #f4 B.%: (\s -> s B.& #f41 B.%: const "Hello")) B.?: #f4 B.?: #f41) r1B
+        , bench "native" $
+            nf (\r -> n_f41 $ n_f4 (r { n_f4 = (n_f4 r) { n_f41 = "Hello" } })) r1N
+        ]
     , bgroup "set get"
         [ bench "superrecord" $ nf (get #f2 . set #f2 123) r1
         , bench "labels" $ nf (L.get #f2 . L.set #f2 123) r1L

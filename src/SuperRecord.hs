@@ -1,3 +1,5 @@
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -18,7 +20,9 @@ module SuperRecord
     ( -- * Basics
       (:=)(..)
     , Rec, rnil, rcons, (&)
-    , Has, get, set
+    , Has
+    , get, (&.)
+    , set, SetPath(..), SPath(..), (&:), snil
       -- * Reflection
     , reflectRec,  RecApply(..)
       -- * Machinery
@@ -170,9 +174,7 @@ type Has l lts idx s v =
    )
 
 -- | Get an existing record field
-get ::
-    forall l v lts idx s.
-    (Has l lts idx s v) => FldProxy l -> Rec lts -> v
+get :: forall l v lts idx s. (Has l lts idx s v) => FldProxy l -> Rec lts -> v
 get _ (Rec vec) =
     let !size = fromIntegral $ natVal' (proxy# :: Proxy# s)
         !readAt = size - fromIntegral (natVal' (proxy# :: Proxy# idx)) - 1
@@ -180,6 +182,11 @@ get _ (Rec vec) =
         anyVal = A.indexArray vec readAt
     in unsafeCoerce# anyVal
 {-# INLINE get #-}
+
+-- | Alias for 'get'
+(&.) :: forall l v lts idx s. (Has l lts idx s v) => Rec lts -> FldProxy l -> v
+(&.) = flip get
+infixl 3 &.
 
 -- | Update an existing record field
 set ::
@@ -198,6 +205,47 @@ set _ !val (Rec vec) =
                Rec <$> A.unsafeFreezeArray m2
     in r2
 {-# INLINE set #-}
+
+
+data SPath (t :: [Symbol]) where
+    SCons :: FldProxy l -> SPath ls -> SPath (l ': ls)
+    SNil :: SPath '[]
+
+snil :: SPath '[]
+snil = SNil
+
+{-# INLINE snil #-}
+
+(&:) :: FldProxy l -> SPath ls -> SPath (l ': ls)
+(&:) = SCons
+infixr 8 &:
+
+{-# INLINE (&:) #-}
+
+type family RecDeepTy (ls :: [Symbol]) (lts :: k) :: * where
+    RecDeepTy (l ': more) (Rec q) = RecDeepTy (l ': more) q
+    RecDeepTy (l ': more) (l := Rec t ': lts) = RecDeepTy more t
+    RecDeepTy (l ': more) (l := t ': lts) = t
+    RecDeepTy (l ': more) (q := t ': lts) = RecDeepTy (l ': more) lts
+    RecDeepTy '[] v = v
+
+class SetPath k x where
+    setPath :: SPath k -> RecDeepTy k x -> x -> x
+
+instance SetPath '[] v where
+    setPath _ v _ = v
+    {-# INLINE setPath #-}
+
+instance
+    ( SetPath more v
+    , Has l lts idx s v
+    , RecDeepTy (l ': more) (Rec lts) ~ RecDeepTy more v
+    ) => SetPath (l ': more) (Rec lts)
+    where
+    setPath (SCons k more) v r =
+        let innerVal = get k r
+        in set k (setPath more v innerVal) r
+    {-# INLINE setPath #-}
 
 -- | Get keys of a record on value and type level
 class RecKeys (lts :: [*]) where

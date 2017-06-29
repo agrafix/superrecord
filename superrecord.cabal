@@ -24,7 +24,7 @@ library
                      , deepseq
                      , ghc-prim
   default-language:    Haskell2010
-  ghc-options:         -Wall
+  ghc-options:         -Wall -O2
 
 test-suite superrecord-test
   type:                exitcode-stdio-1.0
