@@ -27,4 +27,6 @@ main = hspec $
               vals `shouldBe` ["foo", "int"]
        it "showRec words" $
            do let vals = showRec r1
-              vals `shouldBe` ["\"Hi\"", "213"]
+              vals `shouldBe` [("foo", "\"Hi\""), ("int", "213")]
+       it "show works" $
+           show r1 `shouldBe` "[(\"foo\",\"\\\"Hi\\\"\"),(\"int\",\"213\")]"

@@ -15,8 +15,9 @@
 module SuperRecord
     ( (:=)(..)
     , Rec, rnil, rcons, (&)
-    , get, set, showRec, RecKeys(..)
+    , get, set, RecKeys(..)
     , RecTyIdxH, RecIdxTyH
+    , reflectRec, showRec
     )
 where
 
@@ -59,6 +60,9 @@ instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
 -- | The core record type.
 newtype Rec (lts :: [*])
    = Rec { unRec :: V.Vector Dynamic }
+
+instance (MkRecAppRec lts lts Show (String, String)) => Show (Rec lts) where
+    show = show . showRec
 
 -- | An empty record
 rnil :: Rec '[]
@@ -152,8 +156,8 @@ reflectRec ::
 reflectRec _ f r =
     mkRecAppRec (\(Dict :: Dict (c a)) s v -> f s v) r (Proxy :: Proxy lts)
 
-showRec :: forall lts. (MkRecAppRec lts lts Show String) => Rec lts -> [String]
-showRec = reflectRec @Show Proxy (\_ -> show)
+showRec :: forall lts. (MkRecAppRec lts lts Show (String, String)) => Rec lts -> [(String, String)]
+showRec = reflectRec @Show Proxy (\k v -> (k, show v))
 
 class MkRecAppRec (rts :: [*]) (lts :: [*]) c r where
     mkRecAppRec :: (forall a. Dict (c a) -> String -> a -> r) -> Rec rts -> Proxy lts -> [r]
