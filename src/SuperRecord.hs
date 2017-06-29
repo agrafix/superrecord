@@ -65,15 +65,14 @@ instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
 newtype Rec (lts :: [*])
    = Rec { unRec :: V.Vector Dynamic }
 
-instance (RecApply lts lts Show (String, String)) => Show (Rec lts) where
+instance (RecApply lts lts Show) => Show (Rec lts) where
     show = show . showRec
 
 instance RecEq lts lts => Eq (Rec lts) where
     (==) (a :: Rec lts) (b :: Rec lts) = recEq a b (Proxy :: Proxy lts)
 
 instance
-    ( RecApply lts lts ToJSON (T.Text, Value)
-    , RecApply lts lts ToJSON Series
+    ( RecApply lts lts ToJSON
     ) => ToJSON (Rec lts) where
     toJSON = recToValue
     toEncoding = recToEncoding
@@ -161,7 +160,7 @@ instance (KnownSymbol l, RecKeys lts) => RecKeys (l := t ': lts) where
 
 -- | Apply a function to each key element pair for a record
 reflectRec ::
-    forall c r lts. (RecApply lts lts c r)
+    forall c r lts. (RecApply lts lts c)
     => Proxy c
     -> (forall a. c a => String -> a -> r)
     -> Rec lts
@@ -170,28 +169,28 @@ reflectRec _ f r =
     recApply (\(Dict :: Dict (c a)) s v -> f s v) r (Proxy :: Proxy lts)
 
 -- | Convert all elements of a record to a 'String'
-showRec :: forall lts. (RecApply lts lts Show (String, String)) => Rec lts -> [(String, String)]
+showRec :: forall lts. (RecApply lts lts Show) => Rec lts -> [(String, String)]
 showRec = reflectRec @Show Proxy (\k v -> (k, show v))
 
-recToValue :: forall lts. (RecApply lts lts ToJSON (T.Text, Value)) => Rec lts -> Value
+recToValue :: forall lts. (RecApply lts lts ToJSON) => Rec lts -> Value
 recToValue r = toJSON $ reflectRec @ToJSON Proxy (\k v -> (T.pack k, toJSON v)) r
 
-recToEncoding :: forall lts. (RecApply lts lts ToJSON Series) => Rec lts -> Encoding
+recToEncoding :: forall lts. (RecApply lts lts ToJSON) => Rec lts -> Encoding
 recToEncoding r = pairs $ mconcat $ reflectRec @ToJSON Proxy (\k v -> (T.pack k .= v)) r
 
 -- | Machinery needed to implement 'reflectRec'
-class RecApply (rts :: [*]) (lts :: [*]) c r where
+class RecApply (rts :: [*]) (lts :: [*]) c where
     recApply :: (forall a. Dict (c a) -> String -> a -> r) -> Rec rts -> Proxy lts -> [r]
 
-instance RecApply rts '[] c r where
+instance RecApply rts '[] c where
     recApply _ _ _ = []
 
 instance
     ( KnownSymbol l
-    , RecApply rts (RemoveAccessTo l lts) c r
+    , RecApply rts (RemoveAccessTo l lts) c
     , Has l rts idx v
     , c v
-    ) => RecApply rts (l := t ': lts) c r where
+    ) => RecApply rts (l := t ': lts) c where
     recApply f r (_ :: Proxy (l := t ': lts)) =
         let lbl :: FldProxy l
             lbl = FldProxy
