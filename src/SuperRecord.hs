@@ -32,6 +32,8 @@ module SuperRecord
     , recToValue, recToEncoding
     , recJsonParser, RecJsonParse(..)
     , RecNfData(..)
+    , RecSize, RemoveAccessTo
+    , FldProxy(..), RecDeepTy
     )
 where
 
@@ -206,16 +208,18 @@ set _ !val (Rec vec) =
     in r2
 {-# INLINE set #-}
 
-
+-- | Path to the key that should be updated
 data SPath (t :: [Symbol]) where
     SCons :: FldProxy l -> SPath ls -> SPath (l ': ls)
     SNil :: SPath '[]
 
+-- | Alias for 'SNil'
 snil :: SPath '[]
 snil = SNil
 
 {-# INLINE snil #-}
 
+-- | Alias for 'SCons'
 (&:) :: FldProxy l -> SPath ls -> SPath (l ': ls)
 (&:) = SCons
 infixr 8 &:
@@ -230,6 +234,8 @@ type family RecDeepTy (ls :: [Symbol]) (lts :: k) :: * where
     RecDeepTy '[] v = v
 
 class SetPath k x where
+    -- | Perform a deep update, setting the key along the path to the
+    -- desired value
     setPath :: SPath k -> RecDeepTy k x -> x -> x
 
 instance SetPath '[] v where
