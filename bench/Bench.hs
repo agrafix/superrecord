@@ -110,8 +110,8 @@ main =
         , bench "native" $ nf (\r -> r { n_f2 = 123 }) r1N
         ]
     , bgroup "json"
-        [ bench "superrecord" $ nf @(Rec Ex1) (throwOnNone . decode . encode) r1
-        , bench "native" $ nf @Native (throwOnNone . decode . encode) r1N
+        [ bench "superrecord" $ nf @[Rec Ex1] (throwOnNone . decode . encode) $ replicate 50 r1
+        , bench "native" $ nf @[Native] (throwOnNone . decode . encode) $ replicate 50 r1N
         ]
     ]
 

@@ -89,7 +89,7 @@ instance
     toJSON = recToValue
     toEncoding = recToEncoding
 
-instance RecJsonParse lts => FromJSON (Rec lts) where
+instance (RecSize lts ~ s, KnownNat s, RecJsonParse lts) => FromJSON (Rec lts) where
     parseJSON = recJsonParser
 
 instance RecNfData lts lts => NFData (Rec lts) where
@@ -97,9 +97,14 @@ instance RecNfData lts lts => NFData (Rec lts) where
 
 -- | An empty record
 rnil :: Rec '[]
-rnil =
-    Rec $ unsafePerformIO (A.newArray 0 (error "No Value") >>= A.unsafeFreezeArray)
+rnil = unsafeRnil 0
 {-# INLINE rnil #-}
+
+-- | An empty record with an initial size for the record
+unsafeRnil :: Int -> Rec '[]
+unsafeRnil initSize =
+    Rec $ unsafePerformIO (A.newArray initSize (error "No Value") >>= A.unsafeFreezeArray)
+{-# INLINE unsafeRnil #-}
 
 -- | Prepend a record entry to a record 'Rec'
 rcons :: forall l t lts s. (RecSize lts ~ s, KnownNat s) => l := t -> Rec lts -> Rec (l := t ': lts)
@@ -113,6 +118,21 @@ rcons (_ := val) (Rec vec) =
     where
         size = fromIntegral $ natVal' (proxy# :: Proxy# s)
 {-# INLINE rcons #-}
+
+-- | Prepend a record entry to a record 'Rec'. Assumes that the record was created with
+-- 'unsafeRnil' and still has enough free slots, mutates the original 'Rec' which should
+-- not be reused after
+unsafeRCons ::
+    forall l t lts s. (RecSize lts ~ s, KnownNat s) => l := t -> Rec lts -> Rec (l := t ': lts)
+unsafeRCons (_ := val) (Rec vec) =
+    Rec $
+    unsafePerformIO $!
+    do m2 <- A.unsafeThawArray vec
+       A.writeArray m2 size (unsafeCoerce# val)
+       A.unsafeFreezeArray m2
+    where
+        size = fromIntegral $ natVal' (proxy# :: Proxy# s)
+{-# INLINE unsafeRCons #-}
 
 -- | Alias for 'rcons'
 (&) :: forall l t lts s. (RecSize lts ~ s, KnownNat s) => l := t -> Rec lts -> Rec (l := t ': lts)
@@ -217,10 +237,12 @@ recToValue r = toJSON $ reflectRec @ToJSON Proxy (\k v -> (T.pack k, toJSON v)) 
 recToEncoding :: forall lts. (RecApply lts lts ToJSON) => Rec lts -> Encoding
 recToEncoding r = pairs $ mconcat $ reflectRec @ToJSON Proxy (\k v -> (T.pack k .= v)) r
 
-recJsonParser :: forall lts. RecJsonParse lts => Value -> Parser (Rec lts)
+recJsonParser :: forall lts s. (RecSize lts ~ s, KnownNat s, RecJsonParse lts) => Value -> Parser (Rec lts)
 recJsonParser =
     withObject "Record" $ \o ->
-    recJsonParse o
+    recJsonParse initSize o
+    where
+        initSize = fromIntegral $ natVal' (proxy# :: Proxy# s)
 
 -- | Machinery needed to implement 'reflectRec'
 class RecApply (rts :: [*]) (lts :: [*]) c where
@@ -273,21 +295,21 @@ type family RemoveAccessTo (l :: Symbol) (lts :: [*]) :: [*] where
 
 -- | Machinery to implement parseJSON
 class RecJsonParse (lts :: [*]) where
-    recJsonParse :: Object -> Parser (Rec lts)
+    recJsonParse :: Int -> Object -> Parser (Rec lts)
 
 instance RecJsonParse '[] where
-    recJsonParse _ = pure rnil
+    recJsonParse initSize _ = pure (unsafeRnil initSize)
 
 instance
     ( KnownSymbol l, FromJSON t, RecJsonParse lts
     , RecSize lts ~ s, KnownNat s
     ) => RecJsonParse (l := t ': lts) where
-    recJsonParse obj =
+    recJsonParse initSize obj =
         do let lbl :: FldProxy l
                lbl = FldProxy
            (v :: t) <- obj .: T.pack (symbolVal lbl)
-           rest <- recJsonParse obj
-           pure (lbl := v & rest)
+           rest <- recJsonParse initSize obj
+           pure $ unsafeRCons (lbl := v) rest
 
 -- | Machinery for NFData
 class RecNfData (lts :: [*]) (rts :: [*]) where

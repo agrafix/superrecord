@@ -56,4 +56,5 @@ main = hspec $
        it "toJSON matches fromJSON" $
            do decode (encode r1) `shouldBe` Just r1
               decode (encode r2) `shouldBe` Just r2
+              decode (encode rNested) `shouldBe` Just rNested
               decode "{\"foo\": true}" `shouldBe` Just (#foo := True & rnil)
