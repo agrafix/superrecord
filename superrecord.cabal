@@ -21,6 +21,7 @@ library
                      , constraints
                      , aeson
                      , text
+                     , ghc-prim
   default-language:    Haskell2010
   ghc-options:         -Wall
 

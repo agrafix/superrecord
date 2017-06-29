@@ -12,6 +12,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE MagicHash #-}
 module SuperRecord
     ( -- * Basics
       (:=)(..)
@@ -31,8 +32,10 @@ where
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Constraint
-import Data.Dynamic
+import Data.Proxy
+import Data.Typeable
 import GHC.OverloadedLabels
+import GHC.Prim
 import GHC.TypeLits
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -69,7 +72,7 @@ instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
 
 -- | The core record type.
 newtype Rec (lts :: [*])
-   = Rec { unRec :: V.Vector Dynamic }
+   = Rec { unRec :: V.Vector Any }
 
 instance (RecApply lts lts Show) => Show (Rec lts) where
     show = show . showRec
@@ -98,13 +101,13 @@ rnil = Rec V.empty
 {-# INLINE rnil #-}
 
 -- | Prepend a record entry to a record 'Rec'
-rcons :: Typeable t => l := t -> Rec lts -> Rec (l := t ': lts)
+rcons :: l := t -> Rec lts -> Rec (l := t ': lts)
 rcons (_ := val) (Rec vec) =
-    Rec $ V.cons (toDyn val) vec
+    Rec $ V.cons (unsafeCoerce# val) vec
 {-# INLINE rcons #-}
 
 -- | Alias for 'rcons'
-(&) :: Typeable t => l := t -> Rec lts -> Rec (l := t ': lts)
+(&) :: l := t -> Rec lts -> Rec (l := t ': lts)
 (&) = rcons
 {-# INLINE (&) #-}
 
@@ -130,29 +133,21 @@ type Has l lts idx v =
    ( RecTyIdxH 0 l lts ~ idx
    , RecIdxTyH idx 0 lts ~ v
    , KnownNat idx
-   , Typeable v
    )
 
 -- | Get an existing record field
 get :: forall l v lts idx. Has l lts idx v => FldProxy l -> Rec lts -> v
 get _ (Rec vec) =
-    let readAt = fromIntegral $ natVal (Proxy :: Proxy idx)
-        val = V.unsafeIndex vec readAt
-    in case (fromDynamic val :: Maybe v) of
-         Nothing ->
-             let expected = typeOf (undefined :: v)
-                 got = dynTypeRep val
-             in error $
-                "SuperRecord: internal type error. This should not happen. Expected type "
-                ++ show expected ++ " but got " ++ show got
-         Just v -> v
+    let readAt = fromIntegral $ natVal' (proxy# :: Proxy# idx)
+        val = unsafeCoerce# (V.unsafeIndex vec readAt)
+    in val
 {-# INLINE get #-}
 
 -- | Update an existing record field
 set :: forall l v lts idx. Has l lts idx v => FldProxy l -> v -> Rec lts -> Rec lts
 set _ val r =
-    let setAt = fromIntegral $ natVal (Proxy :: Proxy idx)
-        dynVal = toDyn val
+    let setAt = fromIntegral $ natVal' (proxy# :: Proxy# idx)
+        dynVal = unsafeCoerce# val
     in Rec (V.modify (\v -> VM.unsafeWrite v setAt dynVal) $ unRec r)
 {-# INLINE set #-}
 
@@ -257,7 +252,7 @@ instance RecJsonParse '[] where
     recJsonParse _ = pure rnil
 
 instance
-    ( KnownSymbol l, FromJSON t, Typeable t, RecJsonParse lts
+    ( KnownSymbol l, FromJSON t, RecJsonParse lts
     ) => RecJsonParse (l := t ': lts) where
     recJsonParse obj =
         do let lbl :: FldProxy l
