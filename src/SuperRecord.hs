@@ -73,11 +73,8 @@ instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
     fromLabel _ = FldProxy
 
 -- | The core record type.
-data Rec (lts :: [*])
-   = Rec
-   { unRec :: {-# UNPACK #-} !(A.Array Any)
-   , recSize :: {-# UNPACK #-} !Int
-   }
+newtype Rec (lts :: [*])
+   = Rec { _unRec :: (A.Array Any) }
 
 instance (RecApply lts lts Show) => Show (Rec lts) where
     show = show . showRec
@@ -101,32 +98,32 @@ instance RecNfData lts lts => NFData (Rec lts) where
 -- | An empty record
 rnil :: Rec '[]
 rnil =
-    Rec
-    { unRec = unsafePerformIO (A.newArray 0 (error "No Value") >>= A.unsafeFreezeArray)
-    , recSize = 0
-    }
+    Rec $ unsafePerformIO (A.newArray 0 (error "No Value") >>= A.unsafeFreezeArray)
 {-# INLINE rnil #-}
 
 -- | Prepend a record entry to a record 'Rec'
-rcons :: Show t => l := t -> Rec lts -> Rec (l := t ': lts)
-rcons (_ := val) (Rec vec size) =
-    Rec
-    { unRec =
-            unsafePerformIO $!
-            do m2 <- A.newArray (size + 1) (error "No Value")
-               A.copyArray m2 0 vec 0 size
-               A.writeArray m2 size (unsafeCoerce# val)
-               A.unsafeFreezeArray m2
-    , recSize = size + 1
-    }
+rcons :: forall l t lts s. (RecSize lts ~ s, KnownNat s) => l := t -> Rec lts -> Rec (l := t ': lts)
+rcons (_ := val) (Rec vec) =
+    Rec $
+    unsafePerformIO $!
+    do m2 <- A.newArray (size + 1) (error "No Value")
+       A.copyArray m2 0 vec 0 size
+       A.writeArray m2 size (unsafeCoerce# val)
+       A.unsafeFreezeArray m2
+    where
+        size = fromIntegral $ natVal' (proxy# :: Proxy# s)
 {-# INLINE rcons #-}
 
 -- | Alias for 'rcons'
-(&) :: Show t => l := t -> Rec lts -> Rec (l := t ': lts)
+(&) :: forall l t lts s. (RecSize lts ~ s, KnownNat s) => l := t -> Rec lts -> Rec (l := t ': lts)
 (&) = rcons
 {-# INLINE (&) #-}
 
 infixr 5 &
+
+type family RecSize (lts :: [*]) :: Nat where
+    RecSize '[] = 0
+    RecSize (l := t ': lts) = 1 + RecSize lts
 
 type family RecTyIdxH (i :: Nat) (l :: Symbol) (lts :: [*]) :: Nat where
     RecTyIdxH idx l (l := t ': lts) = idx
@@ -143,33 +140,41 @@ type family RecIdxTyH (i :: Nat) (r :: Nat) (lts :: [*]) :: * where
     RecIdxTyH idx other '[] =
         TypeError ('Text "Could not find index " ':<>: 'ShowType idx)
 
--- | State that a record contains a label. Leave idx a free variable, used internally
-type Has l lts idx v =
+-- | State that a record contains a label. Leave idx an s free variables, used internally
+type Has l lts idx s v =
    ( RecTyIdxH 0 l lts ~ idx
    , RecIdxTyH idx 0 lts ~ v
    , KnownNat idx
+   , RecSize lts ~ s, KnownNat s
    )
 
 -- | Get an existing record field
-get :: forall l v lts idx. Has l lts idx v => FldProxy l -> Rec lts -> v
-get _ (Rec vec size) =
-    let !readAt = size - fromIntegral (natVal' (proxy# :: Proxy# idx)) - 1
+get ::
+    forall l v lts idx s.
+    (Has l lts idx s v) => FldProxy l -> Rec lts -> v
+get _ (Rec vec) =
+    let !size = fromIntegral $ natVal' (proxy# :: Proxy# s)
+        !readAt = size - fromIntegral (natVal' (proxy# :: Proxy# idx)) - 1
         anyVal :: Any
         anyVal = A.indexArray vec readAt
     in unsafeCoerce# anyVal
 {-# INLINE get #-}
 
 -- | Update an existing record field
-set :: forall l v lts idx. Has l lts idx v => FldProxy l -> v -> Rec lts -> Rec lts
-set _ !val (Rec vec size) =
-    let !setAt = size - fromIntegral (natVal' (proxy# :: Proxy# idx)) - 1
+set ::
+    forall l v lts idx s.
+    (Has l lts idx s v)
+    => FldProxy l -> v -> Rec lts -> Rec lts
+set _ !val (Rec vec) =
+    let !size = fromIntegral $ natVal' (proxy# :: Proxy# s)
+        !setAt = size - fromIntegral (natVal' (proxy# :: Proxy# idx)) - 1
         dynVal = unsafeCoerce# val
         r2 =
             unsafePerformIO $!
             do m2 <- A.newArray size (error "No Value")
                A.copyArray m2 0 vec 0 size
                A.writeArray m2 setAt dynVal
-               Rec <$> A.unsafeFreezeArray m2 <*> pure size
+               Rec <$> A.unsafeFreezeArray m2
     in r2
 {-# INLINE set #-}
 
@@ -227,7 +232,7 @@ instance RecApply rts '[] c where
 instance
     ( KnownSymbol l
     , RecApply rts (RemoveAccessTo l lts) c
-    , Has l rts idx v
+    , Has l rts idx s v
     , c v
     ) => RecApply rts (l := t ': lts) c where
     recApply f r (_ :: Proxy (l := t ': lts)) =
@@ -248,7 +253,7 @@ instance RecEq rts '[] where
 
 instance
     ( RecEq rts (RemoveAccessTo l lts)
-    , Has l rts idx v
+    , Has l rts idx s v
     , Eq v
     ) => RecEq rts (l := t ': lts) where
     recEq r1 r2 (_ :: Proxy (l := t ': lts)) =
@@ -274,7 +279,8 @@ instance RecJsonParse '[] where
     recJsonParse _ = pure rnil
 
 instance
-    ( KnownSymbol l, FromJSON t, RecJsonParse lts, Show t
+    ( KnownSymbol l, FromJSON t, RecJsonParse lts
+    , RecSize lts ~ s, KnownNat s
     ) => RecJsonParse (l := t ': lts) where
     recJsonParse obj =
         do let lbl :: FldProxy l
@@ -291,7 +297,7 @@ instance RecNfData '[] rts where
     recNfData _ _ = ()
 
 instance
-    ( Has l rts idx v
+    ( Has l rts idx s v
     , NFData v
     , RecNfData (RemoveAccessTo l lts) rts
     ) => RecNfData (l := t ': lts) rts where
