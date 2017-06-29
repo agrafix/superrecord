@@ -22,3 +22,9 @@ main = hspec $
            do let r2 = set #foo "Hey" r1
               get #foo r1 `shouldBe` "Hi"
               get #foo r2 `shouldBe` "Hey"
+       it "getting record keys works" $
+           do let vals = recKeys r1
+              vals `shouldBe` ["foo", "int"]
+       it "showRec words" $
+           do let vals = showRec r1
+              vals `shouldBe` ["foo", "int"]
