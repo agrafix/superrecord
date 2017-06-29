@@ -9,7 +9,8 @@ import SuperRecord
 import Data.Aeson
 import Test.Hspec
 
-type Ex1 = '["foo" := String, "int" := Int]
+type Ex1 =
+    '["foo" := String, "int" := Int]
 
 r1 :: Rec Ex1
 r1 =
@@ -23,6 +24,10 @@ r2 = #foo := "He" & rnil
 polyFun :: Has "foo" lts idx String => Rec lts -> String
 polyFun = get #foo
 
+rNested :: Rec '["foo" := Rec '["bar" := Int] ]
+rNested =
+    #foo := (#bar := 213 & rnil) & rnil
+
 main :: IO ()
 main = hspec $
     do it "getter works" $
@@ -30,6 +35,7 @@ main = hspec $
               get #int r1 `shouldBe` 213
               polyFun r1 `shouldBe` "Hi"
               polyFun r2 `shouldBe` "He"
+              get #bar (get #foo rNested) `shouldBe` 213
        it "setter works" $
            do let r1u = set #foo "Hey" r1
               get #foo r1 `shouldBe` "Hi"

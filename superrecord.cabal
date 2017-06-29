@@ -35,6 +35,17 @@ test-suite superrecord-test
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 
+benchmark superrecord-bench
+  type:                exitcode-stdio-1.0
+  main-is:             Bench.hs
+  hs-source-dirs:      bench
+  build-depends:       base
+                     , superrecord
+                     , criterion
+                     , labels
+                     , bookkeeper
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -O2
+
 source-repository head
   type:     git
   location: https://github.com/agrafix/superrecord

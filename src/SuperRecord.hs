@@ -89,17 +89,18 @@ instance RecJsonParse lts => FromJSON (Rec lts) where
 -- | An empty record
 rnil :: Rec '[]
 rnil = Rec V.empty
-{-# INLINEABLE rnil #-}
+{-# INLINE rnil #-}
 
 -- | Prepend a record entry to a record 'Rec'
 rcons :: Typeable t => l := t -> Rec lts -> Rec (l := t ': lts)
 rcons (_ := val) (Rec vec) =
     Rec $ V.cons (toDyn val) vec
-{-# INLINEABLE rcons #-}
+{-# INLINE rcons #-}
 
 -- | Alias for 'rcons'
 (&) :: Typeable t => l := t -> Rec lts -> Rec (l := t ': lts)
 (&) = rcons
+{-# INLINE (&) #-}
 
 infixr 5 &
 
@@ -139,7 +140,7 @@ get _ (Rec vec) =
                 "SuperRecord: internal type error. This should not happen. Expected type "
                 ++ show expected ++ " but got " ++ show got
          Just v -> v
-{-# INLINEABLE get #-}
+{-# INLINE get #-}
 
 -- | Update an existing record field
 set :: forall l v lts idx. Has l lts idx v => FldProxy l -> v -> Rec lts -> Rec lts
@@ -147,7 +148,7 @@ set _ val r =
     let setAt = fromIntegral $ natVal (Proxy :: Proxy idx)
         dynVal = toDyn val
     in Rec (V.modify (\v -> VM.unsafeWrite v setAt dynVal) $ unRec r)
-{-# INLINEABLE set #-}
+{-# INLINE set #-}
 
 -- | Get keys of a record on value and type level
 class RecKeys (lts :: [*]) where
@@ -176,6 +177,7 @@ reflectRec ::
     -> [r]
 reflectRec _ f r =
     recApply (\(Dict :: Dict (c a)) s v -> f s v) r (Proxy :: Proxy lts)
+{-# INLINE reflectRec #-}
 
 -- | Convert all elements of a record to a 'String'
 showRec :: forall lts. (RecApply lts lts Show) => Rec lts -> [(String, String)]
