@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -21,7 +22,6 @@ where
 
 import Data.Constraint
 import Data.Dynamic
-import Debug.Trace
 import GHC.OverloadedLabels
 import GHC.TypeLits
 import qualified Data.Vector as V
@@ -102,8 +102,13 @@ get ::
 get _ (Rec vec) =
     let readAt = fromIntegral $ natVal (Proxy :: Proxy idx)
         val = V.unsafeIndex vec readAt
-    in case fromDynamic val of
-         Nothing -> error "SuperRecord: internal type error. This should not happen"
+    in case (fromDynamic val :: Maybe v) of
+         Nothing ->
+             let expected = typeOf (undefined :: v)
+                 got = dynTypeRep val
+             in error $
+                "SuperRecord: internal type error. This should not happen. Expected type "
+                ++ show expected ++ " but got " ++ show got
          Just v -> v
 {-# INLINEABLE get #-}
 
@@ -138,62 +143,43 @@ instance (KnownSymbol l, RecKeys lts) => RecKeys (l := t ': lts) where
             more = Proxy
         in (symbolVal lbl : recKeys more)
 
---showRec :: forall lts. (MkRecAppRec lts Show String, RecApp lts String) => Rec lts -> [String]
---showRec =
---    recApp (mkRecAppRec (Proxy :: Proxy lts) (Proxy :: Proxy String) (\(Dict :: Dict (Show a)) _ v -> show v))
+reflectRec ::
+    forall c r lts. (MkRecAppRec lts lts c r)
+    => Proxy c
+    -> (forall a. c a => String -> a -> r)
+    -> Rec lts
+    -> [r]
+reflectRec _ f r =
+    mkRecAppRec (\(Dict :: Dict (c a)) s v -> f s v) r (Proxy :: Proxy lts)
 
-class MkRecAppRec lts c r where
-    mkRecAppRec ::
-        Proxy lts -> Proxy r -> (forall a. Dict (c a) -> String -> a -> r) -> Rec (RecAppRec lts r)
+showRec :: forall lts. (MkRecAppRec lts lts Show String) => Rec lts -> [String]
+showRec = reflectRec @Show Proxy (\_ -> show)
 
-instance MkRecAppRec '[] c r where
-    mkRecAppRec Proxy _ _ = rnil
+class MkRecAppRec (rts :: [*]) (lts :: [*]) c r where
+    mkRecAppRec :: (forall a. Dict (c a) -> String -> a -> r) -> Rec rts -> Proxy lts -> [r]
 
-instance (Typeable t, Typeable r, KnownSymbol l, MkRecAppRec lts c r, c t) => MkRecAppRec (l := t ': lts) c r where
-    mkRecAppRec (Proxy :: Proxy (l := t ': lts)) p f =
-        let more :: Proxy lts
-            more = Proxy
-            lbl :: FldProxy l
+instance MkRecAppRec rts '[] c r where
+    mkRecAppRec _ _ _ = []
+
+instance
+    ( KnownSymbol l
+    , MkRecAppRec rts (RemoveAccessTo l lts) c r
+    , RecTyIdxH 0 l rts ~ idx
+    , RecIdxTyH idx 0 rts ~ v
+    , Typeable v
+    , KnownNat idx
+    , c v
+    ) => MkRecAppRec rts (l := t ': lts) c r where
+    mkRecAppRec f r (_ :: Proxy (l := t ': lts)) =
+        let lbl :: FldProxy l
             lbl = FldProxy
-        in rcons (lbl := (\s x -> f Dict s x)) (trace "CAL!" $ mkRecAppRec more p f)
-
-type family RecAppRec (lts :: [*]) (r :: *) :: [*] where
-    RecAppRec (l := t ': lts) r = (l := (String -> t -> r)  ': RecAppRec lts r)
-    RecAppRec '[] r = '[]
+            val = get lbl r
+            res = f Dict (symbolVal lbl) val
+            pNext :: Proxy (RemoveAccessTo l (l := t ': lts))
+            pNext = Proxy
+        in (res : mkRecAppRec f r pNext)
 
 type family RemoveAccessTo (l :: Symbol) (lts :: [*]) :: [*] where
     RemoveAccessTo l (l := t ': lts) = RemoveAccessTo l lts
     RemoveAccessTo q (l := t ': lts) = (l := t ': RemoveAccessTo l lts)
     RemoveAccessTo q '[] = '[]
-
-removeAccess :: proxy l -> Rec lts -> Rec (RemoveAccessTo l lts)
-removeAccess _ (Rec v) = Rec v
-{-# INLINE removeAccess #-}
-
-{-
-removeAccessF ::
-    proxy (l :: Symbol)
-    -> proxy (lts :: [*])
-    -> proxy (r :: *)
-    -> Rec (RecAppRec lts r)
-    -> Rec (RecAppRec (RemoveAccessTo l lts) r)
-removeAccessF = undefined
-
-class RecApp lts r where
-    recApp :: Rec (RecAppRec lts r) -> Rec lts -> [r]
-
-instance RecApp '[] r where
-    recApp _ _ = []
-
-instance (Typeable t, Typeable r, KnownSymbol l) => RecApp (l := t ': lts) r where
-    recApp (rF :: Rec (RecAppRec (l := t ': lts) r))  (rV :: Rec (l := t ': lts)) =
-        let lbl :: FldProxy l
-            lbl = FldProxy
-            f = get lbl rF
-            v = get lbl rV
-            lblStr = symbolVal lbl
-            rF' :: Rec (RecAppRec (RemoveAccessTo l (l := t ': lts)) r)
-            rF' = removeAccess lbl rF
-            rV' = removeAccess lbl rV
-        in (f lblStr v : recApp rF' rV')
--}
