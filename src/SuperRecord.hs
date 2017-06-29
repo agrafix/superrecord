@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstraintKinds #-}
@@ -16,7 +17,7 @@
 module SuperRecord
     ( -- * Basics
       (:=)(..)
-    , Rec, rnil, rcons, (&), copyRec
+    , Rec, rnil, rcons, (&)
     , Has, get, set
       -- * Reflection
     , reflectRec,  RecApply(..)
@@ -29,6 +30,7 @@ module SuperRecord
     )
 where
 
+import Control.DeepSeq
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Constraint
@@ -37,13 +39,13 @@ import Data.Typeable
 import GHC.OverloadedLabels
 import GHC.Prim
 import GHC.TypeLits
+import System.IO.Unsafe (unsafePerformIO)
+import qualified Data.Primitive.Array as A
 import qualified Data.Text as T
-import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as VM
 
 -- | Field named @l@ labels value of type @t@ adapted from the awesome /labels/ package.
 -- Example: @(#name := \"Chris\") :: (\"name\" := String)@
-data label := value = KnownSymbol label => FldProxy label := value
+data label := value = KnownSymbol label => FldProxy label := !value
 deriving instance Typeable (:=)
 deriving instance Typeable (label := value)
 infix 6 :=
@@ -71,14 +73,18 @@ instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
     fromLabel _ = FldProxy
 
 -- | The core record type.
-newtype Rec (lts :: [*])
-   = Rec { unRec :: V.Vector Any }
+data Rec (lts :: [*])
+   = Rec
+   { unRec :: {-# UNPACK #-} !(A.Array Any)
+   , recSize :: {-# UNPACK #-} !Int
+   }
 
 instance (RecApply lts lts Show) => Show (Rec lts) where
     show = show . showRec
 
 instance RecEq lts lts => Eq (Rec lts) where
     (==) (a :: Rec lts) (b :: Rec lts) = recEq a b (Proxy :: Proxy lts)
+    {-# INLINE (==) #-}
 
 instance
     ( RecApply lts lts ToJSON
@@ -89,25 +95,34 @@ instance
 instance RecJsonParse lts => FromJSON (Rec lts) where
     parseJSON = recJsonParser
 
--- | Yield the record but force it not to retain any extra memory, possibly by copying it.
--- See 'V.force'
-copyRec :: Rec lts -> Rec lts
-copyRec (Rec x) = Rec (V.force x)
-{-# INLINE copyRec #-}
+instance RecNfData lts lts => NFData (Rec lts) where
+    rnf = recNfData (Proxy :: Proxy lts)
 
 -- | An empty record
 rnil :: Rec '[]
-rnil = Rec V.empty
+rnil =
+    Rec
+    { unRec = unsafePerformIO (A.newArray 0 (error "No Value") >>= A.unsafeFreezeArray)
+    , recSize = 0
+    }
 {-# INLINE rnil #-}
 
 -- | Prepend a record entry to a record 'Rec'
-rcons :: l := t -> Rec lts -> Rec (l := t ': lts)
-rcons (_ := val) (Rec vec) =
-    Rec $ V.cons (unsafeCoerce# val) vec
+rcons :: Show t => l := t -> Rec lts -> Rec (l := t ': lts)
+rcons (_ := val) (Rec vec size) =
+    Rec
+    { unRec =
+            unsafePerformIO $!
+            do m2 <- A.newArray (size + 1) (error "No Value")
+               A.copyArray m2 0 vec 0 size
+               A.writeArray m2 size (unsafeCoerce# val)
+               A.unsafeFreezeArray m2
+    , recSize = size + 1
+    }
 {-# INLINE rcons #-}
 
 -- | Alias for 'rcons'
-(&) :: l := t -> Rec lts -> Rec (l := t ': lts)
+(&) :: Show t => l := t -> Rec lts -> Rec (l := t ': lts)
 (&) = rcons
 {-# INLINE (&) #-}
 
@@ -137,18 +152,25 @@ type Has l lts idx v =
 
 -- | Get an existing record field
 get :: forall l v lts idx. Has l lts idx v => FldProxy l -> Rec lts -> v
-get _ (Rec vec) =
-    let readAt = fromIntegral $ natVal' (proxy# :: Proxy# idx)
-        val = unsafeCoerce# (V.unsafeIndex vec readAt)
-    in val
+get _ (Rec vec size) =
+    let !readAt = size - fromIntegral (natVal' (proxy# :: Proxy# idx)) - 1
+        anyVal :: Any
+        anyVal = A.indexArray vec readAt
+    in unsafeCoerce# anyVal
 {-# INLINE get #-}
 
 -- | Update an existing record field
 set :: forall l v lts idx. Has l lts idx v => FldProxy l -> v -> Rec lts -> Rec lts
-set _ val r =
-    let setAt = fromIntegral $ natVal' (proxy# :: Proxy# idx)
+set _ !val (Rec vec size) =
+    let !setAt = size - fromIntegral (natVal' (proxy# :: Proxy# idx)) - 1
         dynVal = unsafeCoerce# val
-    in Rec (V.modify (\v -> VM.unsafeWrite v setAt dynVal) $ unRec r)
+        r2 =
+            unsafePerformIO $!
+            do m2 <- A.newArray size (error "No Value")
+               A.copyArray m2 0 vec 0 size
+               A.writeArray m2 setAt dynVal
+               Rec <$> A.unsafeFreezeArray m2 <*> pure size
+    in r2
 {-# INLINE set #-}
 
 -- | Get keys of a record on value and type level
@@ -244,7 +266,7 @@ type family RemoveAccessTo (l :: Symbol) (lts :: [*]) :: [*] where
     RemoveAccessTo q (l := t ': lts) = (l := t ': RemoveAccessTo l lts)
     RemoveAccessTo q '[] = '[]
 
--- | Machinere to implement parseJSON
+-- | Machinery to implement parseJSON
 class RecJsonParse (lts :: [*]) where
     recJsonParse :: Object -> Parser (Rec lts)
 
@@ -252,7 +274,7 @@ instance RecJsonParse '[] where
     recJsonParse _ = pure rnil
 
 instance
-    ( KnownSymbol l, FromJSON t, RecJsonParse lts
+    ( KnownSymbol l, FromJSON t, RecJsonParse lts, Show t
     ) => RecJsonParse (l := t ': lts) where
     recJsonParse obj =
         do let lbl :: FldProxy l
@@ -260,3 +282,21 @@ instance
            (v :: t) <- obj .: T.pack (symbolVal lbl)
            rest <- recJsonParse obj
            pure (lbl := v & rest)
+
+-- | Machinery for NFData
+class RecNfData (lts :: [*]) (rts :: [*]) where
+    recNfData :: Proxy lts -> Rec rts -> ()
+
+instance RecNfData '[] rts where
+    recNfData _ _ = ()
+
+instance
+    ( Has l rts idx v
+    , NFData v
+    , RecNfData (RemoveAccessTo l lts) rts
+    ) => RecNfData (l := t ': lts) rts where
+    recNfData (_ :: (Proxy (l := t ': lts))) r =
+        let !v = get (FldProxy :: FldProxy l) r
+            pNext :: Proxy (RemoveAccessTo l (l := t ': lts))
+            pNext = Proxy
+        in deepseq v (recNfData pNext r)

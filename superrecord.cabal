@@ -17,10 +17,11 @@ library
   hs-source-dirs:      src
   exposed-modules:     SuperRecord
   build-depends:       base >= 4.7 && < 5
-                     , vector
+                     , primitive >= 0.6
                      , constraints
                      , aeson
                      , text
+                     , deepseq
                      , ghc-prim
   default-language:    Haskell2010
   ghc-options:         -Wall
@@ -45,6 +46,8 @@ benchmark superrecord-bench
                      , criterion
                      , labels
                      , bookkeeper
+                     , deepseq
+                     , aeson
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -O2
 
 source-repository head
