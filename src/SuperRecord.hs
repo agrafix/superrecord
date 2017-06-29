@@ -13,13 +13,18 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 module SuperRecord
-    ( (:=)(..)
+    ( -- * Basics
+      (:=)(..)
     , Rec, rnil, rcons, (&)
     , Has, get, set
-    , RecTyIdxH, RecIdxTyH
+      -- * Reflection
     , reflectRec,  RecApply(..)
+      -- * Machinery
+    , RecTyIdxH, RecIdxTyH
     , showRec, RecKeys(..)
     , RecEq(..)
+    , recToValue, recToEncoding
+    , recJsonParser, RecJsonParse(..)
     )
 where
 
