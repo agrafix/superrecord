@@ -27,6 +27,7 @@ module SuperRecord
     , RecEq(..)
     , recToValue, recToEncoding
     , recJsonParser, RecJsonParse(..)
+    , RecNfData(..)
     )
 where
 
