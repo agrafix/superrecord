@@ -24,6 +24,7 @@ module SuperRecord
 where
 
 import Data.Aeson
+import Data.Aeson.Types (Parser)
 import Data.Constraint
 import Data.Dynamic
 import GHC.OverloadedLabels
@@ -76,6 +77,9 @@ instance
     ) => ToJSON (Rec lts) where
     toJSON = recToValue
     toEncoding = recToEncoding
+
+instance RecJsonParse lts => FromJSON (Rec lts) where
+    parseJSON = recJsonParser
 
 -- | An empty record
 rnil :: Rec '[]
@@ -178,6 +182,11 @@ recToValue r = toJSON $ reflectRec @ToJSON Proxy (\k v -> (T.pack k, toJSON v)) 
 recToEncoding :: forall lts. (RecApply lts lts ToJSON) => Rec lts -> Encoding
 recToEncoding r = pairs $ mconcat $ reflectRec @ToJSON Proxy (\k v -> (T.pack k .= v)) r
 
+recJsonParser :: forall lts. RecJsonParse lts => Value -> Parser (Rec lts)
+recJsonParser =
+    withObject "Record" $ \o ->
+    recJsonParse o
+
 -- | Machinery needed to implement 'reflectRec'
 class RecApply (rts :: [*]) (lts :: [*]) c where
     recApply :: (forall a. Dict (c a) -> String -> a -> r) -> Rec rts -> Proxy lts -> [r]
@@ -226,3 +235,20 @@ type family RemoveAccessTo (l :: Symbol) (lts :: [*]) :: [*] where
     RemoveAccessTo l (l := t ': lts) = RemoveAccessTo l lts
     RemoveAccessTo q (l := t ': lts) = (l := t ': RemoveAccessTo l lts)
     RemoveAccessTo q '[] = '[]
+
+-- | Machinere to implement parseJSON
+class RecJsonParse (lts :: [*]) where
+    recJsonParse :: Object -> Parser (Rec lts)
+
+instance RecJsonParse '[] where
+    recJsonParse _ = pure rnil
+
+instance
+    ( KnownSymbol l, FromJSON t, Typeable t, RecJsonParse lts
+    ) => RecJsonParse (l := t ': lts) where
+    recJsonParse obj =
+        do let lbl :: FldProxy l
+               lbl = FldProxy
+           (v :: t) <- obj .: T.pack (symbolVal lbl)
+           rest <- recJsonParse obj
+           pure (lbl := v & rest)

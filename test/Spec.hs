@@ -1,10 +1,12 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE DataKinds #-}
 import SuperRecord
 
+import Data.Aeson
 import Test.Hspec
 
 type Ex1 = '["foo" := String, "int" := Int]
@@ -43,3 +45,7 @@ main = hspec $
        it "equality works" $
            do r1 == r1 `shouldBe` True
               r1 == set #foo "Hai" r1 `shouldBe` False
+       it "toJSON matches fromJSON" $
+           do decode (encode r1) `shouldBe` Just r1
+              decode (encode r2) `shouldBe` Just r2
+              decode "{\"foo\": true}" `shouldBe` Just (#foo := True & rnil)
