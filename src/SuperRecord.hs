@@ -15,6 +15,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE MagicHash #-}
 module SuperRecord
     ( -- * Basics
@@ -44,11 +45,12 @@ import Data.Aeson.Types (Parser)
 import Data.Constraint
 import Data.Proxy
 import Data.Typeable
+import GHC.Base (Int(..))
+import GHC.IO ( IO(..) )
 import GHC.OverloadedLabels
 import GHC.Prim
 import GHC.TypeLits
 import System.IO.Unsafe (unsafePerformIO)
-import qualified Data.Primitive.Array as A
 import qualified Data.Text as T
 
 -- | Field named @l@ labels value of type @t@ adapted from the awesome /labels/ package.
@@ -81,8 +83,8 @@ instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
     fromLabel _ = FldProxy
 
 -- | The core record type.
-newtype Rec (lts :: [*])
-   = Rec { _unRec :: (A.Array Any) }
+data Rec (lts :: [*])
+   = Rec { _unRec :: SmallArray# Any }
 
 instance (RecApply lts lts Show) => Show (Rec lts) where
     show = show . showRec
@@ -108,10 +110,18 @@ rnil :: Rec '[]
 rnil = unsafeRnil 0
 {-# INLINE rnil #-}
 
+-- newByteArray# :: Int# -> State# s -> (#State# s, MutableByteArray# s#)
+
 -- | An empty record with an initial size for the record
 unsafeRnil :: Int -> Rec '[]
-unsafeRnil initSize =
-    Rec $ unsafePerformIO (A.newArray initSize (error "No Value") >>= A.unsafeFreezeArray)
+unsafeRnil (I# n#) =
+    unsafePerformIO $! IO $ \s# ->
+    case newSmallArray# n# (error "No Value") s# of
+      (# s'#, arr# #) ->
+          case unsafeFreezeSmallArray# arr# s'# of
+            (# s''#, a# #) -> (# s''# , Rec a# #)
+
+    -- (A.newArray initSize (error "No Value") >>= A.unsafeFreezeArray)
 {-# INLINE unsafeRnil #-}
 
 -- | Prepend a record entry to a record 'Rec'
@@ -119,14 +129,19 @@ rcons ::
     forall l t lts s.
     (RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts)
     => l := t -> Rec lts -> Rec (l := t ': lts)
-rcons (_ := val) (Rec vec) =
-    Rec $
-    unsafePerformIO $!
-    do m2 <- A.newArray (size + 1) (error "No Value")
-       A.copyArray m2 0 vec 0 size
-       A.writeArray m2 size (unsafeCoerce# val)
-       A.unsafeFreezeArray m2
+rcons (_ := val) (Rec vec#) =
+    unsafePerformIO $! IO $ \s# ->
+    case newSmallArray# newSize# (error "No value") s# of
+      (# s'#, arr# #) ->
+          case copySmallArray# vec# 0# arr# 0# size# s'# of
+            s''# ->
+                case writeSmallArray# arr# size# (unsafeCoerce# val) s''# of
+                  s'''# ->
+                      case unsafeFreezeSmallArray# arr# s'''# of
+                        (# s''''#, a# #) -> (# s''''#, Rec a# #)
     where
+        !(I# newSize#) = size + 1
+        !(I# size#) = size
         size = fromIntegral $ natVal' (proxy# :: Proxy# s)
 {-# INLINE rcons #-}
 
@@ -137,14 +152,16 @@ unsafeRCons ::
     forall l t lts s.
     (RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts)
     => l := t -> Rec lts -> Rec (l := t ': lts)
-unsafeRCons (_ := val) (Rec vec) =
-    Rec $
-    unsafePerformIO $!
-    do m2 <- A.unsafeThawArray vec
-       A.writeArray m2 size (unsafeCoerce# val)
-       A.unsafeFreezeArray m2
+unsafeRCons (_ := val) (Rec vec#) =
+    unsafePerformIO $! IO $ \s# ->
+    case unsafeThawSmallArray# vec# s# of
+      (# s'#, arr# #) ->
+          case writeSmallArray# arr# size# (unsafeCoerce# val) s'# of
+            s''# ->
+                case unsafeFreezeSmallArray# arr# s''# of
+                  (# s'''#, a# #) -> (# s'''#, Rec a# #)
     where
-        size = fromIntegral $ natVal' (proxy# :: Proxy# s)
+        !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# s)
 {-# INLINE unsafeRCons #-}
 
 -- | Alias for 'rcons'
@@ -194,11 +211,14 @@ get ::
     forall l v lts.
     ( Has l lts v )
     => FldProxy l -> Rec lts -> v
-get _ (Rec vec) =
+get _ (Rec vec#) =
     let !size = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lts))
-        !readAt = size - fromIntegral (natVal' (proxy# :: Proxy# (RecTyIdxH 0 l lts))) - 1
+        !(I# readAt#) =
+            size - fromIntegral (natVal' (proxy# :: Proxy# (RecTyIdxH 0 l lts))) - 1
         anyVal :: Any
-        anyVal = A.indexArray vec readAt
+        anyVal =
+           case indexSmallArray# vec# readAt# of
+             (# a# #) -> a#
     in unsafeCoerce# anyVal
 {-# INLINE get #-}
 
@@ -212,17 +232,23 @@ set ::
     forall l v lts.
     (Has l lts v)
     => FldProxy l -> v -> Rec lts -> Rec lts
-set _ !val (Rec vec) =
+set _ !val (Rec vec#) =
     let !size = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lts))
-        !setAt =
+        !(I# size#) = size
+        !(I# setAt#) =
            size - fromIntegral (natVal' (proxy# :: Proxy# (RecTyIdxH 0 l lts))) - 1
-        dynVal = unsafeCoerce# val
+        dynVal :: Any
+        !dynVal = unsafeCoerce# val
         r2 =
-            unsafePerformIO $!
-            do m2 <- A.newArray size (error "No Value")
-               A.copyArray m2 0 vec 0 size
-               A.writeArray m2 setAt dynVal
-               Rec <$> A.unsafeFreezeArray m2
+            unsafePerformIO $! IO $ \s# ->
+            case newSmallArray# size# (error "No value") s# of
+              (# s'#, arr# #) ->
+                  case copySmallArray# vec# 0# arr# 0# size# s'# of
+                    s''# ->
+                        case writeSmallArray# arr# setAt# dynVal s''# of
+                          s'''# ->
+                              case unsafeFreezeSmallArray# arr# s'''# of
+                                (# s''''#, a# #) -> (# s''''#, Rec a# #)
     in r2
 {-# INLINE set #-}
 

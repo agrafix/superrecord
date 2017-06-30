@@ -17,7 +17,6 @@ library
   hs-source-dirs:      src
   exposed-modules:     SuperRecord
   build-depends:       base >= 4.9 && < 5
-                     , primitive >= 0.6
                      , constraints
                      , aeson >= 1.0
                      , text >= 1.2
