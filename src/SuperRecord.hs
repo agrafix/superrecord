@@ -34,6 +34,7 @@ module SuperRecord
     , RecNfData(..)
     , RecSize, RemoveAccessTo
     , FldProxy(..), RecDeepTy
+    , KeyDoesNotExist
     )
 where
 
@@ -114,7 +115,10 @@ unsafeRnil initSize =
 {-# INLINE unsafeRnil #-}
 
 -- | Prepend a record entry to a record 'Rec'
-rcons :: forall l t lts s. (RecSize lts ~ s, KnownNat s) => l := t -> Rec lts -> Rec (l := t ': lts)
+rcons ::
+    forall l t lts s.
+    (RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts)
+    => l := t -> Rec lts -> Rec (l := t ': lts)
 rcons (_ := val) (Rec vec) =
     Rec $
     unsafePerformIO $!
@@ -130,7 +134,9 @@ rcons (_ := val) (Rec vec) =
 -- 'unsafeRnil' and still has enough free slots, mutates the original 'Rec' which should
 -- not be reused after
 unsafeRCons ::
-    forall l t lts s. (RecSize lts ~ s, KnownNat s) => l := t -> Rec lts -> Rec (l := t ': lts)
+    forall l t lts s.
+    (RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts)
+    => l := t -> Rec lts -> Rec (l := t ': lts)
 unsafeRCons (_ := val) (Rec vec) =
     Rec $
     unsafePerformIO $!
@@ -142,11 +148,22 @@ unsafeRCons (_ := val) (Rec vec) =
 {-# INLINE unsafeRCons #-}
 
 -- | Alias for 'rcons'
-(&) :: forall l t lts s. (RecSize lts ~ s, KnownNat s) => l := t -> Rec lts -> Rec (l := t ': lts)
+(&) ::
+    forall l t lts s.
+    (RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts)
+    => l := t -> Rec lts -> Rec (l := t ': lts)
 (&) = rcons
 {-# INLINE (&) #-}
 
 infixr 5 &
+
+type family KeyDoesNotExist (l :: Symbol) (lts :: [*]) :: Constraint where
+    KeyDoesNotExist l '[] = 'True ~ 'True
+    KeyDoesNotExist l (l := t ': lts) =
+        TypeError
+        ( 'Text "Duplicate key " ':<>: 'Text l
+        )
+    KeyDoesNotExist q (l := t ': lts) = KeyDoesNotExist q lts
 
 type family RecSize (lts :: [*]) :: Nat where
     RecSize '[] = 0
@@ -357,7 +374,7 @@ instance RecJsonParse '[] where
 
 instance
     ( KnownSymbol l, FromJSON t, RecJsonParse lts
-    , RecSize lts ~ s, KnownNat s
+    , RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts
     ) => RecJsonParse (l := t ': lts) where
     recJsonParse initSize obj =
         do let lbl :: FldProxy l
