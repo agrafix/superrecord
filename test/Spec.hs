@@ -21,7 +21,7 @@ r1 =
 r2 :: Rec '["foo" := String]
 r2 = #foo := "He" & rnil
 
-polyFun :: Has "foo" lts idx s String => Rec lts -> String
+polyFun :: Has "foo" lts String => Rec lts -> String
 polyFun = get #foo
 
 rNested :: Rec '["foo" := Rec '["bar" := Int] ]

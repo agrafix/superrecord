@@ -26,7 +26,7 @@ module SuperRecord
       -- * Reflection
     , reflectRec,  RecApply(..)
       -- * Machinery
-    , RecTyIdxH, RecIdxTyH
+    , RecTyIdxH
     , showRec, RecKeys(..)
     , RecEq(..)
     , recToValue, recToEncoding
@@ -178,43 +178,44 @@ type family RecTyIdxH (i :: Nat) (l :: Symbol) (lts :: [*]) :: Nat where
           ':<>: 'Text m
         )
 
-type family RecIdxTyH (i :: Nat) (r :: Nat) (lts :: [*]) :: * where
-    RecIdxTyH idx idx (l := t ': lts) = t
-    RecIdxTyH idx other (l := t ': lts) = RecIdxTyH idx (other + 1) lts
-    RecIdxTyH idx other '[] =
-        TypeError ('Text "Could not find index " ':<>: 'ShowType idx)
+type family RecTy (l :: Symbol) (lts :: [*]) :: * where
+    RecTy l (l := t ': lts) = t
+    RecTy q (l := t ': lts) = RecTy q lts
 
--- | State that a record contains a label. Leave idx an s free variables, used internally
-type Has l lts idx s v =
-   ( RecTyIdxH 0 l lts ~ idx
-   , RecIdxTyH idx 0 lts ~ v
-   , KnownNat idx
-   , RecSize lts ~ s, KnownNat s
+-- | State that a record contains a label
+type Has l lts v =
+   ( RecTy l lts ~ v
+   , KnownNat (RecSize lts)
+   , KnownNat (RecTyIdxH 0 l lts)
    )
 
 -- | Get an existing record field
-get :: forall l v lts idx s. (Has l lts idx s v) => FldProxy l -> Rec lts -> v
+get ::
+    forall l v lts.
+    ( Has l lts v )
+    => FldProxy l -> Rec lts -> v
 get _ (Rec vec) =
-    let !size = fromIntegral $ natVal' (proxy# :: Proxy# s)
-        !readAt = size - fromIntegral (natVal' (proxy# :: Proxy# idx)) - 1
+    let !size = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lts))
+        !readAt = size - fromIntegral (natVal' (proxy# :: Proxy# (RecTyIdxH 0 l lts))) - 1
         anyVal :: Any
         anyVal = A.indexArray vec readAt
     in unsafeCoerce# anyVal
 {-# INLINE get #-}
 
 -- | Alias for 'get'
-(&.) :: forall l v lts idx s. (Has l lts idx s v) => Rec lts -> FldProxy l -> v
+(&.) :: forall l v lts. (Has l lts v) => Rec lts -> FldProxy l -> v
 (&.) = flip get
 infixl 3 &.
 
 -- | Update an existing record field
 set ::
-    forall l v lts idx s.
-    (Has l lts idx s v)
+    forall l v lts.
+    (Has l lts v)
     => FldProxy l -> v -> Rec lts -> Rec lts
 set _ !val (Rec vec) =
-    let !size = fromIntegral $ natVal' (proxy# :: Proxy# s)
-        !setAt = size - fromIntegral (natVal' (proxy# :: Proxy# idx)) - 1
+    let !size = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lts))
+        !setAt =
+           size - fromIntegral (natVal' (proxy# :: Proxy# (RecTyIdxH 0 l lts))) - 1
         dynVal = unsafeCoerce# val
         r2 =
             unsafePerformIO $!
@@ -261,7 +262,7 @@ instance SetPath '[] v where
 
 instance
     ( SetPath more v
-    , Has l lts idx s v
+    , Has l lts v
     , RecDeepTy (l ': more) (Rec lts) ~ RecDeepTy more v
     ) => SetPath (l ': more) (Rec lts)
     where
@@ -326,7 +327,7 @@ instance RecApply rts '[] c where
 instance
     ( KnownSymbol l
     , RecApply rts (RemoveAccessTo l lts) c
-    , Has l rts idx s v
+    , Has l rts v
     , c v
     ) => RecApply rts (l := t ': lts) c where
     recApply f r (_ :: Proxy (l := t ': lts)) =
@@ -347,7 +348,7 @@ instance RecEq rts '[] where
 
 instance
     ( RecEq rts (RemoveAccessTo l lts)
-    , Has l rts idx s v
+    , Has l rts v
     , Eq v
     ) => RecEq rts (l := t ': lts) where
     recEq r1 r2 (_ :: Proxy (l := t ': lts)) =
@@ -391,7 +392,7 @@ instance RecNfData '[] rts where
     recNfData _ _ = ()
 
 instance
-    ( Has l rts idx s v
+    ( Has l rts v
     , NFData v
     , RecNfData (RemoveAccessTo l lts) rts
     ) => RecNfData (l := t ': lts) rts where
