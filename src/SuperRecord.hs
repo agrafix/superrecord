@@ -127,8 +127,6 @@ rnil :: Rec '[]
 rnil = unsafeRnil 0
 {-# INLINE rnil #-}
 
--- newByteArray# :: Int# -> State# s -> (#State# s, MutableByteArray# s#)
-
 -- | An empty record with an initial size for the record
 unsafeRnil :: Int -> Rec '[]
 unsafeRnil (I# n#) =
@@ -137,8 +135,6 @@ unsafeRnil (I# n#) =
       (# s'#, arr# #) ->
           case unsafeFreezeSmallArray# arr# s'# of
             (# s''#, a# #) -> (# s''# , Rec a# #)
-
-    -- (A.newArray initSize (error "No Value") >>= A.unsafeFreezeArray)
 {-# INLINE unsafeRnil #-}
 
 -- | Prepend a record entry to a record 'Rec'
