@@ -24,6 +24,7 @@ module SuperRecord
     , Has
     , get, (&.)
     , set, SetPath(..), SPath(..), (&:), snil
+    , combine, (++:), RecAppend
       -- * Reflection
     , reflectRec,  RecApply(..)
       -- * Machinery
@@ -84,7 +85,7 @@ instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
 
 -- | The core record type.
 data Rec (lts :: [*])
-   = Rec { _unRec :: SmallArray# Any }
+   = Rec { _unRec :: SmallArray# Any } -- Note that the values are physically in reverse order
 
 instance (RecApply lts lts Show) => Show (Rec lts) where
     show = show . showRec
@@ -182,6 +183,22 @@ type family KeyDoesNotExist (l :: Symbol) (lts :: [*]) :: Constraint where
         )
     KeyDoesNotExist q (l := t ': lts) = KeyDoesNotExist q lts
 
+type RecAppend lhs rhs = RecAppendH lhs rhs rhs '[]
+
+type family ListConcat (xs :: [*]) (ys :: [*]) :: [*] where
+    ListConcat '[] ys = ys
+    ListConcat xs '[] = xs
+    ListConcat (x ': xs) ys = x ': (ListConcat xs ys)
+
+type family ListReverse (xs :: [*]) :: [*] where
+    ListReverse (x ': xs) = ListConcat (ListReverse xs) '[x]
+    ListReverse '[] = '[]
+
+type family RecAppendH (lhs ::[*]) (rhs :: [*]) (rhsall :: [*]) (accum :: [*]) :: [*] where
+    RecAppendH (l := t ': lhs) (m := u ': rhs) rhsall acc = RecAppendH (l := t ': lhs) rhs rhsall acc
+    RecAppendH (l := t ': lhs) '[] rhsall acc = RecAppendH lhs rhsall rhsall (l := t ': acc)
+    RecAppendH '[] rhs rhsall acc = ListConcat (ListReverse acc) rhsall
+
 type family RecSize (lts :: [*]) :: Nat where
     RecSize '[] = 0
     RecSize (l := t ': lts) = 1 + RecSize lts
@@ -214,7 +231,8 @@ get ::
     ( Has l lts v )
     => FldProxy l -> Rec lts -> v
 get _ (Rec vec#) =
-    let !(I# readAt#) = fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l lts)))
+    let !(I# readAt#) =
+            fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l lts)))
         anyVal :: Any
         anyVal =
            case indexSmallArray# vec# readAt# of
@@ -294,6 +312,38 @@ instance
         let innerVal = get k r
         in set k (setPath more v innerVal) r
     {-# INLINE setPath #-}
+
+-- | Combine two records
+combine ::
+    forall lhs rhs.
+    (KnownNat (RecSize lhs), KnownNat (RecSize rhs), KnownNat (RecSize lhs + RecSize rhs))
+    => Rec lhs
+    -> Rec rhs
+    -> Rec (RecAppend lhs rhs)
+combine (Rec l#) (Rec r#) =
+    let !(I# sizeL#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lhs))
+        !(I# sizeR#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize rhs))
+        !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lhs + RecSize rhs))
+    in unsafePerformIO $! IO $ \s# ->
+            case newSmallArray# size# (error "No value") s# of
+              (# s'#, arr# #) ->
+                  case copySmallArray# r# 0# arr# 0# sizeR# s'# of
+                    s''# ->
+                        case copySmallArray# l# 0# arr# sizeR# sizeL# s''# of
+                          s'''# ->
+                              case unsafeFreezeSmallArray# arr# s'''# of
+                                (# s''''#, a# #) -> (# s''''#, Rec a# #)
+{-# INLINE combine #-}
+
+-- | Alias for 'combine'
+(++:) ::
+    forall lhs rhs.
+    (KnownNat (RecSize lhs), KnownNat (RecSize rhs), KnownNat (RecSize lhs + RecSize rhs))
+    => Rec lhs
+    -> Rec rhs
+    -> Rec (RecAppend lhs rhs)
+(++:) = combine
+{-# INLINE (++:) #-}
 
 -- | Get keys of a record on value and type level
 class RecKeys (lts :: [*]) where

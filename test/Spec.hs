@@ -1,3 +1,4 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -8,6 +9,13 @@ import SuperRecord
 
 import Data.Aeson
 import Test.Hspec
+
+data D1
+data D2
+data D3
+
+type TestRecAppend =
+    RecAppend '["f1" := D1, "f2" := D2] '["f3" := D3] ~ '["f1" := D1, "f2" := D2, "f3" := D3]
 
 type Ex1 =
     '["foo" := String, "int" := Int]
@@ -28,7 +36,7 @@ rNested :: Rec '["foo" := Rec '["bar" := Int] ]
 rNested =
     #foo := (#bar := 213 & rnil) & rnil
 
-main :: IO ()
+main :: TestRecAppend => IO ()
 main = hspec $
     do it "getter works" $
            do get #foo r1 `shouldBe` "Hi"
@@ -48,6 +56,21 @@ main = hspec $
        it "getting record keys works" $
            do let vals = recKeys r1
               vals `shouldBe` ["foo", "int"]
+       it "combine works" $
+           do let rc = r1 ++: (#bar := True & rnil)
+              rc &. #foo `shouldBe` "Hi"
+              rc &. #int `shouldBe` 213
+              rc &. #bar `shouldBe` True
+              rc `shouldBe` (#foo := "Hi" & #int := 213 & #bar := True & rnil)
+       it "combine works 2" $
+           do let rc = r1 ++: (#bim := 123 & #fizz := "Hoy" & #bar := True & rnil)
+              rc &. #foo `shouldBe` "Hi"
+              rc &. #int `shouldBe` 213
+              rc &. #bar `shouldBe` True
+              rc &. #fizz `shouldBe` ("Hoy" :: String)
+              rc &. #bim `shouldBe` (123 :: Int)
+              rc `shouldBe`
+                  (#foo := "Hi" & #int := 213 & #bim := 123 & #fizz := "Hoy" & #bar := True & rnil)
        it "showRec words" $
            do let vals = showRec r1
               vals `shouldBe` [("foo", "\"Hi\""), ("int", "213")]
