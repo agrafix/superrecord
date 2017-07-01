@@ -24,8 +24,9 @@ module SuperRecord
     , Rec, rnil, rcons, (&)
     , Has, HasOf
     , get, (&.)
-    , set, SetPath(..), SPath(..), (&:), snil
+    , set
     , modify
+    , setPath, modifyPath, SetPath, SPath(..), (&:), snil
     , combine, (++:), RecAppend
       -- * Reflection
     , reflectRec,  RecApply(..)
@@ -320,11 +321,11 @@ type family RecDeepTy (ls :: [Symbol]) (lts :: k) :: * where
 class SetPath k x where
     -- | Perform a deep update, setting the key along the path to the
     -- desired value
-    setPath :: SPath k -> RecDeepTy k x -> x -> x
+    setPath' :: SPath k -> (RecDeepTy k x -> RecDeepTy k x) -> x -> x
 
 instance SetPath '[] v where
-    setPath _ v _ = v
-    {-# INLINE setPath #-}
+    setPath' _ f = f
+    {-# INLINE setPath' #-}
 
 instance
     ( SetPath more v
@@ -332,10 +333,18 @@ instance
     , RecDeepTy (l ': more) (Rec lts) ~ RecDeepTy more v
     ) => SetPath (l ': more) (Rec lts)
     where
-    setPath (SCons k more) v r =
+    setPath' (SCons k more) v r =
         let innerVal = get k r
-        in set k (setPath more v innerVal) r
-    {-# INLINE setPath #-}
+        in set k (setPath' more v innerVal) r
+    {-# INLINE setPath' #-}
+
+setPath :: SetPath k x => SPath k -> RecDeepTy k x -> x -> x
+setPath s v = setPath' s (const v)
+{-# INLINE setPath #-}
+
+modifyPath :: SetPath k x => SPath k -> (RecDeepTy k x -> RecDeepTy k x) -> x -> x
+modifyPath = setPath'
+{-# INLINE modifyPath #-}
 
 -- | Combine two records
 combine ::

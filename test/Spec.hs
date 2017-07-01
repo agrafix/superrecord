@@ -69,6 +69,8 @@ main = hspec $
               set #int 213 (set #int 123 r1) `shouldBe` r1
               setPath (#foo &: #bar &: snil) 123 rNested
                   `shouldBe` (#foo := (#bar := 123 & rnil) & rnil)
+              modifyPath (#foo &: #bar &: snil) (+1) rNested
+                  `shouldBe` (#foo := (#bar := 214 & rnil) & rnil)
        it "modify works" $
            do let r1u = modify #foo (\x -> x ++ "!") r1
               get #foo r1 `shouldBe` "Hi"
