@@ -1,3 +1,4 @@
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedLabels #-}
@@ -9,6 +10,7 @@ import Criterion.Main
 import Control.DeepSeq
 import Data.Aeson
 import GHC.Generics
+import GHC.TypeLits
 import SuperRecord
 import qualified Bookkeeper as B
 import qualified Labels as L
@@ -16,7 +18,7 @@ import qualified Labels as L
 data Nested
     = Nested
     { n_f41 :: String
-    } deriving (Generic)
+    } deriving (Read, Generic)
 
 instance NFData Nested
 instance ToJSON Nested
@@ -28,7 +30,7 @@ data Native
     , n_f2 :: Int
     , n_f3 :: Bool
     , n_f4 :: Nested
-    } deriving (Generic)
+    } deriving (Read, Generic)
 
 instance NFData Native
 instance ToJSON Native
@@ -49,6 +51,9 @@ r1 =
     & #f4 := (#f41 := "abc" & rnil)
     & rnil
 
+
+deriving instance (KnownSymbol a, Read b) => Read ((L.:=) a b )
+
 r1L ::
     ( "f1" L.:= String
     , "f2" L.:= Int
@@ -56,11 +61,9 @@ r1L ::
     , "f4" L.:= ("f41" L.:= String)
     )
 r1L =
-    ( #f1 L.:= "Hi"
-    , #f2 L.:= 213
-    , #f3 L.:= True
-    , #f4 L.:= (#f41 L.:= "abc")
-    )
+    -- needed to prevent unrealistic inlining (normally, data comes from the real world and is
+    -- not statically known at compile time)
+    read "(Proxy := \"Hi\", Proxy := 213, Proxy := True, Proxy := (Proxy := \"abc\"))"
 
 r1B ::
     B.Book
@@ -76,13 +79,11 @@ r1B =
     B.& #f3 B.=: True
     B.& #f4 B.=: (B.emptyBook B.& #f41 B.=: "abc")
 
+r1N :: Native
 r1N =
-    Native
-    { n_f1 = "Hi"
-    , n_f2 = 213
-    , n_f3 = True
-    , n_f4 = Nested "abc"
-    }
+    -- needed to prevent unrealistic inlining (normally, data comes from the real world and is
+    -- not statically known at compile time)
+    read "Native { n_f1 = \"Hi\", n_f2 = 213, n_f3 = True, n_f4 = Nested { n_f41 = \"Hi\"} }"
 
 main :: IO ()
 main =
