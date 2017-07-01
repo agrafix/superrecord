@@ -38,6 +38,8 @@ module SuperRecord
     , asksR, asksRP
     , getsR, setsR, modifiesR
     , getsRP, setsRP, modifiesRP
+      -- * Lens interop
+    , lens
       -- * Machinery
     , RecTyIdxH
     , showRec, RecKeys(..)
@@ -641,3 +643,12 @@ setsRP p v = S.modify (setPath p v)
 modifiesRP ::(RecApplyPath k x, S.MonadState (Rec x) m) => k -> (RecDeepTy k x -> RecDeepTy k x) -> m ()
 modifiesRP p go = S.modify (modifyPath p go)
 {-# INLINE modifiesRP #-}
+
+type Lens s t a b = forall f. Functor f => (a -> f b) -> (s -> f t)
+
+-- | Convert a field label to a lens
+lens ::
+    Has l lts v => FldProxy l -> Lens (Rec lts) (Rec lts) v v
+lens lbl f r =
+    fmap (\v -> set lbl v r) (f (get lbl r))
+{-# INLINE lens #-}
