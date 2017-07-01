@@ -30,6 +30,7 @@ module SuperRecord
     , reflectRec,  RecApply(..)
       -- * Native type interop
     , FromNative, fromNative
+    , ToNative, toNative
       -- * Machinery
     , RecTyIdxH
     , showRec, RecKeys(..)
@@ -516,3 +517,32 @@ instance
 -- | Convert a native Haskell type to a record
 fromNative :: (Generic a, FromNative (Rep a) lts) => a -> Rec lts
 fromNative = fromNative' . from
+
+-- | Conversion helper to bring a record back into a Haskell type. Note that the
+-- native Haskell type must be an instance of 'Generic'
+class ToNative a lts | a -> lts where
+    toNative' :: Proxy a -> Rec lts -> a x
+
+instance ToNative cs lts => ToNative (D1 m cs) lts where
+    toNative' _ xs = M1 $ toNative' (Proxy :: Proxy cs) xs
+
+instance ToNative cs lts => ToNative (C1 m cs) lts where
+    toNative' _ xs = M1 $ toNative' (Proxy :: Proxy cs) xs
+
+instance
+    (KnownSymbol name, Has name lts t)
+    => ToNative (S1 ('MetaSel ('Just name) p s l) (Rec0 t)) lts
+    where
+    toNative' _ r =
+        M1 $ K1 (get (FldProxy :: FldProxy name) r)
+
+instance
+    ( ToNative l lts
+    , ToNative r lts
+    )
+    => ToNative (l :*: r) lts where
+    toNative' _ r = toNative' (Proxy :: Proxy l) r :*: toNative' (Proxy :: Proxy r) r
+
+-- | Convert a record to a native Haskell type
+toNative :: (Generic a, ToNative (Rep a) lts) => Rec lts -> a
+toNative = to . toNative' Proxy

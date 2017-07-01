@@ -6,6 +6,8 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+module Main where
+
 import SuperRecord
 
 import Data.Aeson
@@ -21,9 +23,9 @@ type TestRecAppend =
 
 data SomeType
     = SomeType
-    { _st_foo :: !String
-    , _st_bar :: !Int
-    } deriving Generic
+    { st_foo :: !String
+    , st_bar :: !Int
+    } deriving (Show, Eq, Generic)
 
 type Ex1 =
     '["foo" := String, "int" := Int]
@@ -72,8 +74,15 @@ main = hspec $
               vals `shouldBe` ["foo", "int"]
        it "fromNative works" $
            do let r = fromNative (SomeType "hello" 123)
-              get #_st_foo r `shouldBe` "hello"
-              get #_st_bar r `shouldBe` 123
+              get #st_foo r `shouldBe` "hello"
+              get #st_bar r `shouldBe` 123
+       it "toNative works" $
+           do let ra = (#st_foo := "hello" & #st_bar := 123 & rnil)
+              toNative ra `shouldBe` SomeType "hello" 123
+              let rb = (#st_bar := 123 & #st_foo := "hello" & rnil)
+              toNative rb `shouldBe` SomeType "hello" 123
+              let rc = (#other := True & #st_bar := 123 & #st_foo := "hello" & rnil)
+              toNative rc `shouldBe` SomeType "hello" 123
        it "combine works" $
            do let rc = r1 ++: (#bar := True & rnil)
               rc &. #foo `shouldBe` "Hi"
