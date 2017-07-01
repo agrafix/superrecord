@@ -21,7 +21,7 @@ module SuperRecord
     ( -- * Basics
       (:=)(..)
     , Rec, rnil, rcons, (&)
-    , Has
+    , Has, HasOf
     , get, (&.)
     , set, SetPath(..), SPath(..), (&:), snil
     , combine, (++:), RecAppend
@@ -218,7 +218,12 @@ type family RecTy (l :: Symbol) (lts :: [*]) :: * where
     RecTy l (l := t ': lts) = t
     RecTy q (l := t ': lts) = RecTy q lts
 
--- | State that a record contains a label
+-- | Require a record to contain at least the listed labels
+type family HasOf (req :: [*]) (lts :: [*]) :: Constraint where
+    HasOf (l := t ': req) lts = (Has l lts t, HasOf req lts)
+    HasOf '[] lts = 'True ~ 'True
+
+-- | Require a record to contain a label
 type Has l lts v =
    ( RecTy l lts ~ v
    , KnownNat (RecSize lts)

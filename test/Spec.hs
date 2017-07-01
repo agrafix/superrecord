@@ -32,6 +32,10 @@ r2 = #foo := "He" & rnil
 polyFun :: Has "foo" lts String => Rec lts -> String
 polyFun = get #foo
 
+polyFun2 :: HasOf '["foo" := String, "bar" := Bool] lts => Rec lts -> String
+polyFun2 r =
+    get #foo r ++ " -> " ++ show (get #bar r)
+
 rNested :: Rec '["foo" := Rec '["bar" := Int] ]
 rNested =
     #foo := (#bar := 213 & rnil) & rnil
@@ -45,6 +49,8 @@ main = hspec $
               polyFun r2 `shouldBe` "He"
               get #bar (get #foo rNested) `shouldBe` 213
               rNested &. #foo &. #bar `shouldBe` 213
+       it "hasOf workds" $
+           polyFun2 (#foo := "123" & #bar := True & #bim := False & rnil) `shouldBe` "123 -> True"
        it "setter works" $
            do let r1u = set #foo "Hey" r1
               get #foo r1 `shouldBe` "Hi"
