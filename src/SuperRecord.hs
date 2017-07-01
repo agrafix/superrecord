@@ -36,6 +36,7 @@ module SuperRecord
       -- * MTL interop
     , asksR
     , getsR, setsR, modifiesR
+    , setsRP, modifiesRP
       -- * Machinery
     , RecTyIdxH
     , showRec, RecKeys(..)
@@ -591,3 +592,13 @@ setsR f v = S.modify (set f v)
 modifiesR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> (v -> v) -> m ()
 modifiesR f go = S.modify (modify f go)
 {-# INLINE modifiesR #-}
+
+-- | Similar to 'put' for 'MonadState', but you only set a single record field
+setsRP :: (SetPath k x, S.MonadState x m) => SPath k -> RecDeepTy k x -> m ()
+setsRP p v = S.modify (setPath p v)
+{-# INLINE setsRP #-}
+
+-- | Similar to 'modify' for 'MonadState', but you update a single record field
+modifiesRP ::(SetPath k x, S.MonadState x m) => SPath k -> (RecDeepTy k x -> RecDeepTy k x) -> m ()
+modifiesRP p go = S.modify (modifyPath p go)
+{-# INLINE modifiesRP #-}
