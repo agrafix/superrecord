@@ -521,19 +521,19 @@ fromNative = fromNative' . from
 -- | Conversion helper to bring a record back into a Haskell type. Note that the
 -- native Haskell type must be an instance of 'Generic'
 class ToNative a lts | a -> lts where
-    toNative' :: Proxy a -> Rec lts -> a x
+    toNative' :: Rec lts -> a x
 
 instance ToNative cs lts => ToNative (D1 m cs) lts where
-    toNative' _ xs = M1 $ toNative' (Proxy :: Proxy cs) xs
+    toNative' xs = M1 $ toNative' xs
 
 instance ToNative cs lts => ToNative (C1 m cs) lts where
-    toNative' _ xs = M1 $ toNative' (Proxy :: Proxy cs) xs
+    toNative' xs = M1 $ toNative' xs
 
 instance
-    (KnownSymbol name, Has name lts t)
+    (Has name lts t)
     => ToNative (S1 ('MetaSel ('Just name) p s l) (Rec0 t)) lts
     where
-    toNative' _ r =
+    toNative' r =
         M1 $ K1 (get (FldProxy :: FldProxy name) r)
 
 instance
@@ -541,8 +541,8 @@ instance
     , ToNative r lts
     )
     => ToNative (l :*: r) lts where
-    toNative' _ r = toNative' (Proxy :: Proxy l) r :*: toNative' (Proxy :: Proxy r) r
+    toNative' r = toNative' r :*: toNative' r
 
 -- | Convert a record to a native Haskell type
 toNative :: (Generic a, ToNative (Rep a) lts) => Rec lts -> a
-toNative = to . toNative' Proxy
+toNative = to . toNative'
