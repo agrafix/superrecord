@@ -119,6 +119,9 @@ main =
         [ bench "superrecord" $ nf (set #f2 123) r1
         , bench "native" $ nf (\r -> r { n_f2 = 123 }) r1N
         ]
+    , bgroup "combine rec"
+        [ bench "superrecord" $ nf (\r -> r ++: (#foo := True & rnil)) r1
+        ]
     , bgroup "json"
         [ bench "superrecord" $ nf @[Rec Ex1] (throwOnNone . decode' . encode) $ replicate 50 r1
         , bench "native" $ nf @[Native] (throwOnNone . decode' . encode) $ replicate 50 r1N
