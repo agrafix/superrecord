@@ -186,6 +186,8 @@ type family RecSize (lts :: [*]) :: Nat where
     RecSize '[] = 0
     RecSize (l := t ': lts) = 1 + RecSize lts
 
+type RecVecIdxPos l lts = RecSize lts - RecTyIdxH 0 l lts - 1
+
 type family RecTyIdxH (i :: Nat) (l :: Symbol) (lts :: [*]) :: Nat where
     RecTyIdxH idx l (l := t ': lts) = idx
     RecTyIdxH idx m (l := t ': lts) = RecTyIdxH (1 + idx) m lts
@@ -203,7 +205,7 @@ type family RecTy (l :: Symbol) (lts :: [*]) :: * where
 type Has l lts v =
    ( RecTy l lts ~ v
    , KnownNat (RecSize lts)
-   , KnownNat (RecTyIdxH 0 l lts)
+   , KnownNat (RecVecIdxPos l lts)
    )
 
 -- | Get an existing record field
@@ -212,9 +214,7 @@ get ::
     ( Has l lts v )
     => FldProxy l -> Rec lts -> v
 get _ (Rec vec#) =
-    let !size = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lts))
-        !(I# readAt#) =
-            size - fromIntegral (natVal' (proxy# :: Proxy# (RecTyIdxH 0 l lts))) - 1
+    let !(I# readAt#) = fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l lts)))
         anyVal :: Any
         anyVal =
            case indexSmallArray# vec# readAt# of
@@ -233,10 +233,8 @@ set ::
     (Has l lts v)
     => FldProxy l -> v -> Rec lts -> Rec lts
 set _ !val (Rec vec#) =
-    let !size = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lts))
-        !(I# size#) = size
-        !(I# setAt#) =
-           size - fromIntegral (natVal' (proxy# :: Proxy# (RecTyIdxH 0 l lts))) - 1
+    let !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lts))
+        !(I# setAt#) = fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l lts)))
         dynVal :: Any
         !dynVal = unsafeCoerce# val
         r2 =
