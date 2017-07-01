@@ -26,7 +26,7 @@ module SuperRecord
     , get, (&.)
     , set
     , modify
-    , setPath, modifyPath, SetPath, SPath(..), (&:), snil
+    , getPath, setPath, modifyPath, RecApplyPath, RecPath(..), (&:), pnil
     , combine, (++:), RecAppend
       -- * Reflection
     , reflectRec,  RecApply(..)
@@ -295,19 +295,18 @@ modify lbl fun r = set lbl (fun $ get lbl r) r
 {-# INLINE modify #-}
 
 -- | Path to the key that should be updated
-data SPath (t :: [Symbol]) where
-    SCons :: FldProxy l -> SPath ls -> SPath (l ': ls)
-    SNil :: SPath '[]
+data RecPath (t :: [Symbol]) where
+    PCons :: FldProxy l -> RecPath ls -> RecPath (l ': ls)
+    PNil :: RecPath '[]
 
--- | Alias for 'SNil'
-snil :: SPath '[]
-snil = SNil
+-- | Alias for 'PNil'
+pnil :: RecPath '[]
+pnil = PNil
+{-# INLINE pnil #-}
 
-{-# INLINE snil #-}
-
--- | Alias for 'SCons'
-(&:) :: FldProxy l -> SPath ls -> SPath (l ': ls)
-(&:) = SCons
+-- | Alias for 'PCons'
+(&:) :: FldProxy l -> RecPath ls -> RecPath (l ': ls)
+(&:) = PCons
 infixr 8 &:
 
 {-# INLINE (&:) #-}
@@ -319,33 +318,50 @@ type family RecDeepTy (ls :: [Symbol]) (lts :: k) :: * where
     RecDeepTy (l ': more) (q := t ': lts) = RecDeepTy (l ': more) lts
     RecDeepTy '[] v = v
 
-class SetPath k x where
+class RecApplyPath k x where
     -- | Perform a deep update, setting the key along the path to the
     -- desired value
-    setPath' :: SPath k -> (RecDeepTy k x -> RecDeepTy k x) -> x -> x
+    setPath' :: RecPath k -> (RecDeepTy k x -> RecDeepTy k x) -> x -> x
 
-instance SetPath '[] v where
+    -- | Perform a deep read
+    getPath' :: RecPath k -> x -> RecDeepTy k x
+
+instance RecApplyPath '[] v where
     setPath' _ f = f
     {-# INLINE setPath' #-}
+    getPath' _ x = x
+    {-# INLINE getPath' #-}
 
 instance
-    ( SetPath more v
+    ( RecApplyPath more v
     , Has l lts v
     , RecDeepTy (l ': more) (Rec lts) ~ RecDeepTy more v
-    ) => SetPath (l ': more) (Rec lts)
+    ) => RecApplyPath (l ': more) (Rec lts)
     where
-    setPath' (SCons k more) v r =
+    setPath' (PCons k more) v r =
         let innerVal = get k r
         in set k (setPath' more v innerVal) r
     {-# INLINE setPath' #-}
 
-setPath :: SetPath k x => SPath k -> RecDeepTy k x -> x -> x
+    getPath' (PCons k more) r = getPath' more (get k r)
+    {-# INLINE getPath' #-}
+
+-- | Perform a deep update, setting the key along the path to the
+-- desired value
+setPath :: RecApplyPath k x => RecPath k -> RecDeepTy k x -> x -> x
 setPath s v = setPath' s (const v)
 {-# INLINE setPath #-}
 
-modifyPath :: SetPath k x => SPath k -> (RecDeepTy k x -> RecDeepTy k x) -> x -> x
+-- | Perform a deep update, transforming the value at the final key
+modifyPath :: RecApplyPath k x => RecPath k -> (RecDeepTy k x -> RecDeepTy k x) -> x -> x
 modifyPath = setPath'
 {-# INLINE modifyPath #-}
+
+-- | Perform a deep read. This is somewhat similar to using (&.), but is useful
+-- when you want to share a 'RecPath' between 'getPath', 'modifyPath' and/or 'setPath'
+getPath :: RecApplyPath k x => RecPath k -> x -> RecDeepTy k x
+getPath = getPath'
+{-# INLINE getPath #-}
 
 -- | Combine two records
 combine ::
@@ -594,11 +610,11 @@ modifiesR f go = S.modify (modify f go)
 {-# INLINE modifiesR #-}
 
 -- | Similar to 'put' for 'MonadState', but you only set a single record field
-setsRP :: (SetPath k x, S.MonadState x m) => SPath k -> RecDeepTy k x -> m ()
+setsRP :: (RecApplyPath k x, S.MonadState x m) => RecPath k -> RecDeepTy k x -> m ()
 setsRP p v = S.modify (setPath p v)
 {-# INLINE setsRP #-}
 
 -- | Similar to 'modify' for 'MonadState', but you update a single record field
-modifiesRP ::(SetPath k x, S.MonadState x m) => SPath k -> (RecDeepTy k x -> RecDeepTy k x) -> m ()
+modifiesRP ::(RecApplyPath k x, S.MonadState x m) => RecPath k -> (RecDeepTy k x -> RecDeepTy k x) -> m ()
 modifiesRP p go = S.modify (modifyPath p go)
 {-# INLINE modifiesRP #-}

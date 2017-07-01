@@ -59,6 +59,7 @@ main = hspec $
               polyFun r2 `shouldBe` "He"
               get #bar (get #foo rNested) `shouldBe` 213
               rNested &. #foo &. #bar `shouldBe` 213
+              getPath (#foo &: #bar &: pnil) rNested `shouldBe` 213
        it "hasOf workds" $
            polyFun2 (#foo := "123" & #bar := True & #bim := False & rnil) `shouldBe` "123 -> True"
        it "setter works" $
@@ -67,9 +68,9 @@ main = hspec $
               get #foo r1u `shouldBe` "Hey"
               get #int (set #int 123 r1) `shouldBe` 123
               set #int 213 (set #int 123 r1) `shouldBe` r1
-              setPath (#foo &: #bar &: snil) 123 rNested
+              setPath (#foo &: #bar &: pnil) 123 rNested
                   `shouldBe` (#foo := (#bar := 123 & rnil) & rnil)
-              modifyPath (#foo &: #bar &: snil) (+1) rNested
+              modifyPath (#foo &: #bar &: pnil) (+1) rNested
                   `shouldBe` (#foo := (#bar := 214 & rnil) & rnil)
        it "modify works" $
            do let r1u = modify #foo (\x -> x ++ "!") r1
