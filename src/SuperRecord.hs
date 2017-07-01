@@ -22,11 +22,12 @@ module SuperRecord
     ( -- * Basics
       (:=)(..)
     , Rec, rnil, rcons, (&)
+    , fld
     , Has, HasOf
     , get, (&.)
     , set
     , modify
-    , getPath, setPath, modifyPath, RecApplyPath, RecPath(..), (&:), pnil
+    , getPath, setPath, modifyPath, RecApplyPath, (:&), (&:), (&:-)
     , combine, (++:), RecAppend
       -- * Reflection
     , reflectRec,  RecApply(..)
@@ -227,7 +228,7 @@ type family RecTyIdxH (i :: Nat) (l :: Symbol) (lts :: [*]) :: Nat where
           ':<>: 'Text m
         )
 
-type family RecTy (l :: Symbol) (lts :: [*]) :: * where
+type family RecTy (l :: Symbol) (lts :: [*]) :: k where
     RecTy l (l := t ': lts) = t
     RecTy q (l := t ': lts) = RecTy q lts
 
@@ -294,72 +295,81 @@ modify ::
 modify lbl fun r = set lbl (fun $ get lbl r) r
 {-# INLINE modify #-}
 
--- | Path to the key that should be updated
-data RecPath (t :: [Symbol]) where
-    PCons :: FldProxy l -> RecPath ls -> RecPath (l ': ls)
-    PNil :: RecPath '[]
+-- | Constructor for field accessor paths
+data lbl :& more = FldProxy lbl :& more
+infixr 8 :&
 
--- | Alias for 'PNil'
-pnil :: RecPath '[]
-pnil = PNil
-{-# INLINE pnil #-}
-
--- | Alias for 'PCons'
-(&:) :: FldProxy l -> RecPath ls -> RecPath (l ': ls)
-(&:) = PCons
-infixr 8 &:
-
+-- | Constructor for field accessor paths
+(&:) :: FldProxy q -> more -> q :& more
+(&:) = (:&)
 {-# INLINE (&:) #-}
 
-type family RecDeepTy (ls :: [Symbol]) (lts :: k) :: * where
-    RecDeepTy (l ': more) (Rec q) = RecDeepTy (l ': more) q
-    RecDeepTy (l ': more) (l := Rec t ': lts) = RecDeepTy more t
-    RecDeepTy (l ': more) (l := t ': lts) = t
-    RecDeepTy (l ': more) (q := t ': lts) = RecDeepTy (l ': more) lts
-    RecDeepTy '[] v = v
+infixr 8 &:
 
-class RecApplyPath k x where
+-- | Specialized version of (&:) to help writing the last piece of the path w/o
+-- confusing the type checker
+(&:-) :: FldProxy q -> FldProxy r -> q :& FldProxy r
+(&:-) = (:&)
+{-# INLINE (&:-) #-}
+
+infixr 8 &:-
+
+-- | Helper function to allow to clearing specify unknown 'IsLabel' cases
+fld :: FldProxy l -> FldProxy l
+fld = id
+
+type family RecDeepTy (ps :: r) (lts :: [*]) :: * where
+    RecDeepTy (l :& more) (l := Rec t ': lts) = RecDeepTy more t
+    RecDeepTy (l :& more) (l := t ': lts) = t
+    RecDeepTy (l :& more) (q := t ': lts) = RecDeepTy (l :& more) lts
+    RecDeepTy (FldProxy l) '[l := t] = t
+    RecDeepTy l '[l := t] = t
+
+class RecApplyPath p x where
     -- | Perform a deep update, setting the key along the path to the
     -- desired value
-    setPath' :: RecPath k -> (RecDeepTy k x -> RecDeepTy k x) -> x -> x
+    setPath' :: p -> (RecDeepTy p x -> RecDeepTy p x) -> Rec x -> Rec x
 
     -- | Perform a deep read
-    getPath' :: RecPath k -> x -> RecDeepTy k x
+    getPath' :: p -> Rec x -> RecDeepTy p x
 
-instance RecApplyPath '[] v where
-    setPath' _ f = f
+instance (Has l lts t, t ~ RecDeepTy (FldProxy l) lts) => RecApplyPath (FldProxy l) lts where
+    setPath' = modify
     {-# INLINE setPath' #-}
-    getPath' _ x = x
+
+    getPath' = get
     {-# INLINE getPath' #-}
 
 instance
-    ( RecApplyPath more v
+    ( RecDeepTy (l :& more) lts ~ RecDeepTy more rts
+    , RecTy l lts ~ Rec rts
     , Has l lts v
-    , RecDeepTy (l ': more) (Rec lts) ~ RecDeepTy more v
-    ) => RecApplyPath (l ': more) (Rec lts)
-    where
-    setPath' (PCons k more) v r =
-        let innerVal = get k r
-        in set k (setPath' more v innerVal) r
+    , v ~ Rec rts
+    , RecApplyPath more rts
+    ) => RecApplyPath (l :& more) lts where
+    setPath' (x :& more) v r =
+        let innerVal :: Rec rts
+            innerVal = get x r
+        in set x (setPath' more v innerVal) r
     {-# INLINE setPath' #-}
 
-    getPath' (PCons k more) r = getPath' more (get k r)
+    getPath' (x :& more) r = getPath' more (get x r)
     {-# INLINE getPath' #-}
 
 -- | Perform a deep update, setting the key along the path to the
 -- desired value
-setPath :: RecApplyPath k x => RecPath k -> RecDeepTy k x -> x -> x
+setPath :: RecApplyPath k x => k -> RecDeepTy k x -> Rec x -> Rec x
 setPath s v = setPath' s (const v)
 {-# INLINE setPath #-}
 
 -- | Perform a deep update, transforming the value at the final key
-modifyPath :: RecApplyPath k x => RecPath k -> (RecDeepTy k x -> RecDeepTy k x) -> x -> x
+modifyPath :: RecApplyPath k x => k -> (RecDeepTy k x -> RecDeepTy k x) -> Rec x -> Rec x
 modifyPath = setPath'
 {-# INLINE modifyPath #-}
 
 -- | Perform a deep read. This is somewhat similar to using (&.), but is useful
 -- when you want to share a 'RecPath' between 'getPath', 'modifyPath' and/or 'setPath'
-getPath :: RecApplyPath k x => RecPath k -> x -> RecDeepTy k x
+getPath :: RecApplyPath k x => k -> Rec x -> RecDeepTy k x
 getPath = getPath'
 {-# INLINE getPath #-}
 
@@ -557,6 +567,7 @@ instance
 -- | Convert a native Haskell type to a record
 fromNative :: (Generic a, FromNative (Rep a) lts) => a -> Rec lts
 fromNative = fromNative' . from
+{-# INLINE fromNative #-}
 
 -- | Conversion helper to bring a record back into a Haskell type. Note that the
 -- native Haskell type must be an instance of 'Generic'
@@ -586,6 +597,7 @@ instance
 -- | Convert a record to a native Haskell type
 toNative :: (Generic a, ToNative (Rep a) lts) => Rec lts -> a
 toNative = to . toNative'
+{-# INLINE toNative #-}
 
 -- | Like 'asks' for 'MonadReader', but you provide a record field you would like
 -- to read from your environment
@@ -595,7 +607,7 @@ asksR f = asks (get f)
 
 -- | Like 'asks' for 'MonadReader', but you provide a record field you would like
 -- to read from your environment
-asksRP :: (RecApplyPath k x, MonadReader x m) => RecPath k -> m (RecDeepTy k x)
+asksRP :: (RecApplyPath k x, MonadReader (Rec x) m) => k -> m (RecDeepTy k x)
 asksRP p = asks (getPath p)
 {-# INLINE asksRP #-}
 
@@ -616,16 +628,16 @@ modifiesR f go = S.modify (modify f go)
 {-# INLINE modifiesR #-}
 
 -- | Similar to 'gets' for 'MonadState', but allows getting a value along a 'RecPath'
-getsRP :: (RecApplyPath k x, S.MonadState x m) => RecPath k -> m (RecDeepTy k x)
+getsRP :: (RecApplyPath k x, S.MonadState (Rec x) m) => k -> m (RecDeepTy k x)
 getsRP p = S.gets (getPath p)
 {-# INLINE getsRP #-}
 
 -- | Similar to 'put' for 'MonadState', but you only set a single record field
-setsRP :: (RecApplyPath k x, S.MonadState x m) => RecPath k -> RecDeepTy k x -> m ()
+setsRP :: (RecApplyPath k x, S.MonadState (Rec x) m) => k -> RecDeepTy k x -> m ()
 setsRP p v = S.modify (setPath p v)
 {-# INLINE setsRP #-}
 
 -- | Similar to 'modify' for 'MonadState', but you update a single record field
-modifiesRP ::(RecApplyPath k x, S.MonadState x m) => RecPath k -> (RecDeepTy k x -> RecDeepTy k x) -> m ()
+modifiesRP ::(RecApplyPath k x, S.MonadState (Rec x) m) => k -> (RecDeepTy k x -> RecDeepTy k x) -> m ()
 modifiesRP p go = S.modify (modifyPath p go)
 {-# INLINE modifiesRP #-}

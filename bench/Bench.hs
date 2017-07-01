@@ -94,14 +94,15 @@ main =
         , bench "native" $ nf n_f2 r1N
         ]
     , bgroup "get nested"
-        [ bench "superrecord" $ nf (get #f41 . get #f4) r1
+        [ bench "superrecord get" $ nf (get #f41 . get #f4) r1
+        , bench "superrecord getPath" $ nf (getPath (#f4 &:- #f41)) r1
         , bench "labels" $ nf (L.get #f41 . L.get #f4) r1L
         , bench "bookkeeper" $ nf (\r -> r B.?: #f4 B.?: #f41) r1B
         , bench "native" $ nf (n_f41 . n_f4) r1N
         ]
     , bgroup "set nested"
         [ bench "superrecord" $
-            nf (\r -> (setPath (#f4 &: #f41 &: snil) "Hello" r) &. #f4 &. #f41) r1
+            nf (\r -> (setPath (#f4 &:- #f41) "Hello" r) &. #f4 &. #f41) r1
         , bench "labels" $
             nf (\r -> L.get #f41 . L.get #f4 $ L.modify #f4 (L.set #f41 "Hello") r) r1L
         , bench "bookkeeper" $
