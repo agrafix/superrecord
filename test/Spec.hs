@@ -5,17 +5,25 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 import SuperRecord
 
 import Data.Aeson
+import GHC.Generics (Generic)
 import Test.Hspec
 
-data D1
-data D2
-data D3
+data V1
+data V2
+data V3
 
 type TestRecAppend =
-    RecAppend '["f1" := D1, "f2" := D2] '["f3" := D3] ~ '["f1" := D1, "f2" := D2, "f3" := D3]
+    RecAppend '["f1" := V1, "f2" := V2] '["f3" := V3] ~ '["f1" := V1, "f2" := V2, "f3" := V3]
+
+data SomeType
+    = SomeType
+    { _st_foo :: !String
+    , _st_bar :: !Int
+    } deriving Generic
 
 type Ex1 =
     '["foo" := String, "int" := Int]
@@ -62,6 +70,10 @@ main = hspec $
        it "getting record keys works" $
            do let vals = recKeys r1
               vals `shouldBe` ["foo", "int"]
+       it "fromNative works" $
+           do let r = fromNative (SomeType "hello" 123)
+              get #_st_foo r `shouldBe` "hello"
+              get #_st_bar r `shouldBe` 123
        it "combine works" $
            do let rc = r1 ++: (#bar := True & rnil)
               rc &. #foo `shouldBe` "Hi"
