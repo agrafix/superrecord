@@ -34,9 +34,9 @@ module SuperRecord
     , FromNative, fromNative
     , ToNative, toNative
       -- * MTL interop
-    , asksR
+    , asksR, asksRP
     , getsR, setsR, modifiesR
-    , setsRP, modifiesRP
+    , getsRP, setsRP, modifiesRP
       -- * Machinery
     , RecTyIdxH
     , showRec, RecKeys(..)
@@ -593,6 +593,12 @@ asksR :: (Has lbl lts v, MonadReader (Rec lts) m) => FldProxy lbl -> m v
 asksR f = asks (get f)
 {-# INLINE asksR #-}
 
+-- | Like 'asks' for 'MonadReader', but you provide a record field you would like
+-- to read from your environment
+asksRP :: (RecApplyPath k x, MonadReader x m) => RecPath k -> m (RecDeepTy k x)
+asksRP p = asks (getPath p)
+{-# INLINE asksRP #-}
+
 -- | Like 'gets' for 'MonadState', but you provide a record field you would like
 -- to read from your environment
 getsR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> m v
@@ -608,6 +614,11 @@ setsR f v = S.modify (set f v)
 modifiesR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> (v -> v) -> m ()
 modifiesR f go = S.modify (modify f go)
 {-# INLINE modifiesR #-}
+
+-- | Similar to 'gets' for 'MonadState', but allows getting a value along a 'RecPath'
+getsRP :: (RecApplyPath k x, S.MonadState x m) => RecPath k -> m (RecDeepTy k x)
+getsRP p = S.gets (getPath p)
+{-# INLINE getsRP #-}
 
 -- | Similar to 'put' for 'MonadState', but you only set a single record field
 setsRP :: (RecApplyPath k x, S.MonadState x m) => RecPath k -> RecDeepTy k x -> m ()
