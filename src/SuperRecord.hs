@@ -25,12 +25,16 @@ module SuperRecord
     , Has, HasOf
     , get, (&.)
     , set, SetPath(..), SPath(..), (&:), snil
+    , modify
     , combine, (++:), RecAppend
       -- * Reflection
     , reflectRec,  RecApply(..)
       -- * Native type interop
     , FromNative, fromNative
     , ToNative, toNative
+      -- * MTL interop
+    , asksR
+    , getsR, setsR, modifiesR
       -- * Machinery
     , RecTyIdxH
     , showRec, RecKeys(..)
@@ -45,6 +49,7 @@ module SuperRecord
 where
 
 import Control.DeepSeq
+import Control.Monad.Reader
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Constraint
@@ -57,6 +62,7 @@ import GHC.OverloadedLabels
 import GHC.Prim
 import GHC.TypeLits
 import System.IO.Unsafe (unsafePerformIO)
+import qualified Control.Monad.State as S
 import qualified Data.Text as T
 
 -- | Field named @l@ labels value of type @t@ adapted from the awesome /labels/ package.
@@ -277,6 +283,14 @@ set _ !val (Rec vec#) =
                                 (# s''''#, a# #) -> (# s''''#, Rec a# #)
     in r2
 {-# INLINE set #-}
+
+-- | Update an existing record field
+modify ::
+    forall l v lts.
+    (Has l lts v)
+    => FldProxy l -> (v -> v) -> Rec lts -> Rec lts
+modify lbl fun r = set lbl (fun $ get lbl r) r
+{-# INLINE modify #-}
 
 -- | Path to the key that should be updated
 data SPath (t :: [Symbol]) where
@@ -546,3 +560,25 @@ instance
 -- | Convert a record to a native Haskell type
 toNative :: (Generic a, ToNative (Rep a) lts) => Rec lts -> a
 toNative = to . toNative'
+
+-- | Like 'asks' for 'MonadReader', but you provide a record field you would like
+-- to read from your environment
+asksR :: (Has lbl lts v, MonadReader (Rec lts) m) => FldProxy lbl -> m v
+asksR f = asks (get f)
+{-# INLINE asksR #-}
+
+-- | Like 'gets' for 'MonadState', but you provide a record field you would like
+-- to read from your environment
+getsR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> m v
+getsR f = S.gets (get f)
+{-# INLINE getsR #-}
+
+-- | Similar to 'put' for 'MonadState', but you only set a single record field
+setsR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> v -> m ()
+setsR f v = S.modify (set f v)
+{-# INLINE setsR #-}
+
+-- | Similar to 'modify' for 'MonadState', but you update a single record field
+modifiesR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> (v -> v) -> m ()
+modifiesR f go = S.modify (modify f go)
+{-# INLINE modifiesR #-}

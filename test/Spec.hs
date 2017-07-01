@@ -69,6 +69,10 @@ main = hspec $
               set #int 213 (set #int 123 r1) `shouldBe` r1
               setPath (#foo &: #bar &: snil) 123 rNested
                   `shouldBe` (#foo := (#bar := 123 & rnil) & rnil)
+       it "modify works" $
+           do let r1u = modify #foo (\x -> x ++ "!") r1
+              get #foo r1 `shouldBe` "Hi"
+              get #foo r1u `shouldBe` "Hi!"
        it "getting record keys works" $
            do let vals = recKeys r1
               vals `shouldBe` ["foo", "int"]
