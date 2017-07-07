@@ -4,4 +4,4 @@
 
 Supercharged anonymous records
 
-See: https://www.athiemann.net/2017/07/02/superrecord.html
+For a full introduction and explication please read [this blog post](https://www.athiemann.net/2017/07/02/superrecord.html).
