@@ -30,13 +30,13 @@ data SomeType
 type Ex1 =
     '["foo" := String, "int" := Int]
 
-r1 :: Rec Ex1
+r1 :: Record Ex1
 r1 =
     #foo := "Hi"
     & #int := 213
     & rnil
 
-r2 :: Rec '["foo" := String]
+r2 :: Record '["foo" := String]
 r2 = #foo := "He" & rnil
 
 polyFun :: Has "foo" lts String => Rec lts -> String
