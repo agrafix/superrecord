@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE BangPatterns #-}
 import Criterion
 import Criterion.Main
 
@@ -35,6 +36,42 @@ data Native
 instance NFData Native
 instance ToJSON Native
 instance FromJSON Native
+
+someIntList :: [Int]
+someIntList =
+    read "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]"
+
+data CList a
+    = CList
+    { cl_list :: !(Maybe (a, CList a))
+    } deriving (Show, Eq)
+
+toCList :: [a] -> CList a
+toCList [] = CList Nothing
+toCList (x : xs) = CList (Just (x, toCList xs))
+
+idxC :: Int -> CList a -> Maybe a
+idxC !i c
+    | i <= 0 = fst <$> cl_list c
+    | otherwise =
+          case cl_list c of
+            Just (_, xs) -> idxC (i - 1) xs
+            Nothing -> Nothing
+
+newtype RList a
+    = RList { unRlist :: Rec '[ "list" := Maybe (a, RList a) ] }
+
+toRList :: [a] -> RList a
+toRList [] = RList $ #list := Nothing & rnil
+toRList (x : xs) = RList $ #list := Just (x, toRList xs) & rnil
+
+idxR :: Int -> RList a -> Maybe a
+idxR !i (RList r)
+    | i <= 0 = fst <$> get #list r
+    | otherwise =
+          case get #list r of
+            Just (_, xs) -> idxR (i - 1) xs
+            Nothing -> Nothing
 
 type Ex1 =
     '[ "f1" := String
@@ -127,6 +164,10 @@ main =
     , bgroup "json"
         [ bench "superrecord" $ nf @[Rec Ex1] (throwOnNone . decode' . encode) $ replicate 50 r1
         , bench "native" $ nf @[Native] (throwOnNone . decode' . encode) $ replicate 50 r1N
+        ]
+    , bgroup "dummy list"
+        [ bench "superrecord" $ nf (idxR 9 . toRList) someIntList
+        , bench "native" $ nf (idxC 9 . toCList) someIntList
         ]
     ]
 
