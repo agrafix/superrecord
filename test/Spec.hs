@@ -46,7 +46,7 @@ polyFun2 :: HasOf '["foo" := String, "bar" := Bool] lts => Rec lts -> String
 polyFun2 r =
     get #foo r ++ " -> " ++ show (get #bar r)
 
-rNested :: Rec '["foo" := Rec '["bar" := Int] ]
+rNested :: Record '["foo" := Record '["bar" := Int] ]
 rNested =
     #foo := (#bar := 213 & rnil) & rnil
 
@@ -60,7 +60,7 @@ main = hspec $
               get #bar (get #foo rNested) `shouldBe` 213
               rNested &. #foo &. #bar `shouldBe` 213
               getPath (#foo &:- #bar) rNested `shouldBe` 213
-       it "hasOf workds" $
+       it "hasOf works" $
            polyFun2 (#foo := "123" & #bar := True & #bim := False & rnil) `shouldBe` "123 -> True"
        it "setter works" $
            do let r1u = set #foo "Hey" r1

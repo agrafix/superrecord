@@ -101,10 +101,13 @@ data FldProxy (t :: Symbol)
 instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
     fromLabel _ = FldProxy
 
--- | The core record type
+-- | The core record type. Prefer this type when manually writing type
+-- signatures
 type Record lts = Rec (Sort lts)
 
--- | Internal record type
+-- | Internal record type. When manually writing an explicit type signature for
+-- a record, use 'Record' instead. For abstract type signatures 'Rec' will work
+-- well.
 data Rec (lts :: [*])
    = Rec { _unRec :: SmallArray# Any } -- Note that the values are physically in reverse order
 
@@ -147,6 +150,7 @@ rcons ::
     forall l t lts s.
     ( RecSize lts ~ s
     , KnownNat s
+    , KnownNat (RecVecIdxPos l (Sort (l := t ': lts)))
     , KeyDoesNotExist l lts
     , RecCopy lts lts (Sort (l := t ': lts))
     )
@@ -157,14 +161,15 @@ rcons (_ := val) lts =
       (# s'#, arr# #) ->
           case recCopyInto (Proxy :: Proxy lts) lts (Proxy :: Proxy (Sort (l := t ': lts))) arr# s'# of
             s''# ->
-                case writeSmallArray# arr# size# (unsafeCoerce# val) s''# of
+                case writeSmallArray# arr# setAt# (unsafeCoerce# val) s''# of
                   s'''# ->
                       case unsafeFreezeSmallArray# arr# s'''# of
                         (# s''''#, a# #) -> (# s''''#, Rec a# #)
     where
-        !(I# newSize#) = size + 1
-        !(I# size#) = size
-        size = fromIntegral $ natVal' (proxy# :: Proxy# s)
+        !(I# setAt#) =
+            fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l (Sort (l := t ': lts)))))
+        newSize# = size# +# 1#
+        !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# s)
 {-# INLINE rcons #-}
 
 class RecCopy (pts :: [*]) (lts :: [*]) (rts :: [*]) where
@@ -217,6 +222,7 @@ unsafeRCons (_ := val) (Rec vec#) =
     forall l t lts s.
     ( RecSize lts ~ s
     , KnownNat s
+    , KnownNat (RecVecIdxPos l (Sort (l := t ': lts)))
     , KeyDoesNotExist l lts
     , RecCopy lts lts (Sort (l := t ': lts))
     )
