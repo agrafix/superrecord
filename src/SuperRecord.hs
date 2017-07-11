@@ -21,7 +21,7 @@
 module SuperRecord
     ( -- * Basics
       (:=)(..)
-    , Rec, rnil, rcons, (&)
+    , Record, rnil, rcons, (&)
     , fld
     , Has, HasOf
     , get, (&.)
@@ -30,7 +30,7 @@ module SuperRecord
     , getPath, setPath, modifyPath, RecApplyPath, (:&), (&:), (&:-)
     , combine, (++:), RecAppend
       -- * Reflection
-    , reflectRec,  RecApply(..)
+    , reflectRec, reflectRecFold, RecApply(..)
       -- * Native type interop
     , FromNative, fromNative
     , ToNative, toNative
@@ -41,8 +41,10 @@ module SuperRecord
       -- * Lens interop
     , lens
       -- * Machinery
+    , Rec
+    , RecCopy
     , RecTyIdxH
-    , showRec, RecKeys(..)
+    , showRec, RecKeys(..), recKeys
     , RecEq(..)
     , recToValue, recToEncoding
     , recJsonParser, RecJsonParse(..)
@@ -99,7 +101,13 @@ data FldProxy (t :: Symbol)
 instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
     fromLabel _ = FldProxy
 
--- | The core record type.
+-- | The core record type. Prefer this type when manually writing type
+-- signatures
+type Record lts = Rec (Sort lts)
+
+-- | Internal record type. When manually writing an explicit type signature for
+-- a record, use 'Record' instead. For abstract type signatures 'Rec' will work
+-- well.
 data Rec (lts :: [*])
    = Rec { _unRec :: SmallArray# Any } -- Note that the values are physically in reverse order
 
@@ -140,23 +148,55 @@ unsafeRnil (I# n#) =
 -- | Prepend a record entry to a record 'Rec'
 rcons ::
     forall l t lts s.
-    (RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts)
-    => l := t -> Rec lts -> Rec (l := t ': lts)
-rcons (_ := val) (Rec vec#) =
+    ( RecSize lts ~ s
+    , KnownNat s
+    , KnownNat (RecVecIdxPos l (Sort (l := t ': lts)))
+    , KeyDoesNotExist l lts
+    , RecCopy lts lts (Sort (l := t ': lts))
+    )
+    => l := t -> Rec lts -> Rec (Sort (l := t ': lts))
+rcons (_ := val) lts =
     unsafePerformIO $! IO $ \s# ->
     case newSmallArray# newSize# (error "No value") s# of
       (# s'#, arr# #) ->
-          case copySmallArray# vec# 0# arr# 0# size# s'# of
+          case recCopyInto (Proxy :: Proxy lts) lts (Proxy :: Proxy (Sort (l := t ': lts))) arr# s'# of
             s''# ->
-                case writeSmallArray# arr# size# (unsafeCoerce# val) s''# of
+                case writeSmallArray# arr# setAt# (unsafeCoerce# val) s''# of
                   s'''# ->
                       case unsafeFreezeSmallArray# arr# s'''# of
                         (# s''''#, a# #) -> (# s''''#, Rec a# #)
     where
-        !(I# newSize#) = size + 1
-        !(I# size#) = size
-        size = fromIntegral $ natVal' (proxy# :: Proxy# s)
+        !(I# setAt#) =
+            fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l (Sort (l := t ': lts)))))
+        newSize# = size# +# 1#
+        !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# s)
 {-# INLINE rcons #-}
+
+class RecCopy (pts :: [*]) (lts :: [*]) (rts :: [*]) where
+    recCopyInto ::
+        Proxy pts -> Rec lts -> Proxy rts
+        -> SmallMutableArray# RealWorld Any
+        -> State# RealWorld
+        -> State# RealWorld
+
+instance RecCopy '[] lts rts where
+    recCopyInto _ _ _ _ s# = s#
+
+instance
+    ( Has l rts t
+    , Has l lts t
+    , RecCopy (RemoveAccessTo l (l := t ': pts)) lts rts
+    ) => RecCopy (l := t ': pts) lts rts where
+    recCopyInto _ lts prxy tgt# s# =
+        let lbl :: FldProxy l
+            lbl = FldProxy
+            val = get lbl lts
+            pNext :: Proxy (RemoveAccessTo l (l := t ': pts))
+            pNext = Proxy
+            !(I# setAt#) =
+                fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l rts)))
+        in case writeSmallArray# tgt# setAt# (unsafeCoerce# val) s# of
+             s'# -> recCopyInto pNext lts prxy tgt# s'#
 
 -- | Prepend a record entry to a record 'Rec'. Assumes that the record was created with
 -- 'unsafeRnil' and still has enough free slots, mutates the original 'Rec' which should
@@ -180,12 +220,29 @@ unsafeRCons (_ := val) (Rec vec#) =
 -- | Alias for 'rcons'
 (&) ::
     forall l t lts s.
-    (RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts)
-    => l := t -> Rec lts -> Rec (l := t ': lts)
+    ( RecSize lts ~ s
+    , KnownNat s
+    , KnownNat (RecVecIdxPos l (Sort (l := t ': lts)))
+    , KeyDoesNotExist l lts
+    , RecCopy lts lts (Sort (l := t ': lts))
+    )
+    => l := t -> Rec lts -> Rec (Sort (l := t ': lts))
 (&) = rcons
 {-# INLINE (&) #-}
 
 infixr 5 &
+
+type family Sort (lts :: [*]) where
+    Sort '[] = '[]
+    Sort (x := t ': xs) = SortInsert (x := t) (Sort xs)
+
+type family SortInsert (x :: *) (xs :: [*]) where
+    SortInsert x '[] = x ': '[]
+    SortInsert (x := t) ((y := u) ': ys) = SortInsert' (CmpSymbol x y) (x := t) (y := u) ys
+
+type family SortInsert' (b :: Ordering) (x :: *) (y :: *) (ys :: [*]) where
+    SortInsert' 'LT  x y ys = x ': (y ': ys)
+    SortInsert' _    x y ys = y ': SortInsert x ys
 
 type family KeyDoesNotExist (l :: Symbol) (lts :: [*]) :: Constraint where
     KeyDoesNotExist l '[] = 'True ~ 'True
@@ -374,20 +431,24 @@ getPath = getPath'
 -- | Combine two records
 combine ::
     forall lhs rhs.
-    (KnownNat (RecSize lhs), KnownNat (RecSize rhs), KnownNat (RecSize lhs + RecSize rhs))
+    ( KnownNat (RecSize lhs)
+    , KnownNat (RecSize rhs)
+    , KnownNat (RecSize lhs + RecSize rhs)
+    , RecCopy lhs lhs (Sort (RecAppend lhs rhs))
+    , RecCopy rhs rhs (Sort (RecAppend lhs rhs))
+    )
     => Rec lhs
     -> Rec rhs
-    -> Rec (RecAppend lhs rhs)
-combine (Rec l#) (Rec r#) =
-    let !(I# sizeL#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lhs))
-        !(I# sizeR#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize rhs))
-        !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lhs + RecSize rhs))
+    -> Rec (Sort (RecAppend lhs rhs))
+combine lts rts =
+    let !(I# size#) =
+            fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lhs + RecSize rhs))
     in unsafePerformIO $! IO $ \s# ->
             case newSmallArray# size# (error "No value") s# of
               (# s'#, arr# #) ->
-                  case copySmallArray# r# 0# arr# 0# sizeR# s'# of
+                  case recCopyInto (Proxy :: Proxy lhs) lts (Proxy :: Proxy (Sort (RecAppend lhs rhs))) arr# s'# of
                     s''# ->
-                        case copySmallArray# l# 0# arr# sizeR# sizeL# s''# of
+                        case recCopyInto (Proxy :: Proxy rhs) rts (Proxy :: Proxy (Sort (RecAppend lhs rhs))) arr# s''# of
                           s'''# ->
                               case unsafeFreezeSmallArray# arr# s'''# of
                                 (# s''''#, a# #) -> (# s''''#, Rec a# #)
@@ -396,30 +457,48 @@ combine (Rec l#) (Rec r#) =
 -- | Alias for 'combine'
 (++:) ::
     forall lhs rhs.
-    (KnownNat (RecSize lhs), KnownNat (RecSize rhs), KnownNat (RecSize lhs + RecSize rhs))
+    ( KnownNat (RecSize lhs)
+    , KnownNat (RecSize rhs)
+    , KnownNat (RecSize lhs + RecSize rhs)
+    , RecCopy lhs lhs (Sort (RecAppend lhs rhs))
+    , RecCopy rhs rhs (Sort (RecAppend lhs rhs))
+    )
     => Rec lhs
     -> Rec rhs
-    -> Rec (RecAppend lhs rhs)
+    -> Rec (Sort (RecAppend lhs rhs))
 (++:) = combine
 {-# INLINE (++:) #-}
+
+data RecFields (flds :: [Symbol]) where
+    RFNil :: RecFields '[]
+    RFCons :: KnownSymbol f => FldProxy f -> RecFields xs -> RecFields (f ': xs)
+
+recKeys :: forall t (lts :: [*]). RecKeys lts => t lts -> [String]
+recKeys = recKeys' . recFields
+
+recKeys' :: RecFields lts -> [String]
+recKeys' x =
+    case x of
+      RFNil -> []
+      RFCons q qs -> symbolVal q : recKeys' qs
 
 -- | Get keys of a record on value and type level
 class RecKeys (lts :: [*]) where
     type RecKeysT lts :: [Symbol]
-    recKeys :: t lts -> [String]
+    recFields :: t lts -> RecFields (RecKeysT lts)
 
 instance RecKeys '[] where
     type RecKeysT '[] = '[]
-    recKeys _ = []
+    recFields _ = RFNil
 
 instance (KnownSymbol l, RecKeys lts) => RecKeys (l := t ': lts) where
     type RecKeysT (l := t ': lts) = (l ': RecKeysT lts)
-    recKeys (_ :: f (l := t ': lts)) =
+    recFields (_ :: f (l := t ': lts)) =
         let lbl :: FldProxy l
             lbl = FldProxy
             more :: Proxy lts
             more = Proxy
-        in (symbolVal lbl : recKeys more)
+        in (lbl `RFCons` recFields more)
 
 -- | Apply a function to each key element pair for a record
 reflectRec ::
@@ -429,8 +508,21 @@ reflectRec ::
     -> Rec lts
     -> [r]
 reflectRec _ f r =
-    recApply (\(Dict :: Dict (c a)) s v -> f s v) r (Proxy :: Proxy lts)
+    reverse $
+    recApply (\(Dict :: Dict (c a)) s v xs -> (f s v : xs)) r (Proxy :: Proxy lts) []
 {-# INLINE reflectRec #-}
+
+-- | Fold over all elements of a record
+reflectRecFold ::
+    forall c r lts. (RecApply lts lts c)
+    => Proxy c
+    -> (forall a. c a => String -> a -> r -> r)
+    -> Rec lts
+    -> r
+    -> r
+reflectRecFold _ f r =
+    recApply (\(Dict :: Dict (c a)) s v x -> f s v x) r (Proxy :: Proxy lts)
+{-# INLINE reflectRecFold #-}
 
 -- | Convert all elements of a record to a 'String'
 showRec :: forall lts. (RecApply lts lts Show) => Rec lts -> [(String, String)]
@@ -451,10 +543,10 @@ recJsonParser =
 
 -- | Machinery needed to implement 'reflectRec'
 class RecApply (rts :: [*]) (lts :: [*]) c where
-    recApply :: (forall a. Dict (c a) -> String -> a -> r) -> Rec rts -> Proxy lts -> [r]
+    recApply :: (forall a. Dict (c a) -> String -> a -> b -> b) -> Rec rts -> Proxy lts -> b -> b
 
 instance RecApply rts '[] c where
-    recApply _ _ _ = []
+    recApply _ _ _ b = b
 
 instance
     ( KnownSymbol l
@@ -462,14 +554,14 @@ instance
     , Has l rts v
     , c v
     ) => RecApply rts (l := t ': lts) c where
-    recApply f r (_ :: Proxy (l := t ': lts)) =
+    recApply f r (_ :: Proxy (l := t ': lts)) b =
         let lbl :: FldProxy l
             lbl = FldProxy
             val = get lbl r
-            res = f Dict (symbolVal lbl) val
+            res = f Dict (symbolVal lbl) val b
             pNext :: Proxy (RemoveAccessTo l (l := t ': lts))
             pNext = Proxy
-        in (res : recApply f r pNext)
+        in recApply f r pNext res
 
 -- | Machinery to implement equality
 class RecEq (rts :: [*]) (lts :: [*]) where
@@ -554,7 +646,9 @@ instance
 instance
     ( FromNative l lhs
     , FromNative r rhs
-    , lts ~ RecAppend lhs rhs
+    , lts ~ Sort (RecAppend lhs rhs)
+    , RecCopy lhs lhs lts
+    , RecCopy rhs rhs lts
     , KnownNat (RecSize lhs)
     , KnownNat (RecSize rhs)
     , KnownNat (RecSize lhs + RecSize rhs)

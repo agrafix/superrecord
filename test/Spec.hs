@@ -30,13 +30,13 @@ data SomeType
 type Ex1 =
     '["foo" := String, "int" := Int]
 
-r1 :: Rec Ex1
+r1 :: Record Ex1
 r1 =
     #foo := "Hi"
     & #int := 213
     & rnil
 
-r2 :: Rec '["foo" := String]
+r2 :: Record '["foo" := String]
 r2 = #foo := "He" & rnil
 
 polyFun :: Has "foo" lts String => Rec lts -> String
@@ -46,7 +46,7 @@ polyFun2 :: HasOf '["foo" := String, "bar" := Bool] lts => Rec lts -> String
 polyFun2 r =
     get #foo r ++ " -> " ++ show (get #bar r)
 
-rNested :: Rec '["foo" := Rec '["bar" := Int] ]
+rNested :: Record '["foo" := Record '["bar" := Int] ]
 rNested =
     #foo := (#bar := 213 & rnil) & rnil
 
@@ -60,7 +60,7 @@ main = hspec $
               get #bar (get #foo rNested) `shouldBe` 213
               rNested &. #foo &. #bar `shouldBe` 213
               getPath (#foo &:- #bar) rNested `shouldBe` 213
-       it "hasOf workds" $
+       it "hasOf works" $
            polyFun2 (#foo := "123" & #bar := True & #bim := False & rnil) `shouldBe` "123 -> True"
        it "setter works" $
            do let r1u = set #foo "Hey" r1
@@ -90,6 +90,15 @@ main = hspec $
               toNative rb `shouldBe` SomeType "hello" 123
               let rc = (#other := True & #st_bar := 123 & #st_foo := "hello" & rnil)
               toNative rc `shouldBe` SomeType "hello" 123
+       it "can be constructed in any order" $
+           do let areEq =
+                      (#foo := True & #bar := False & rnil)
+                      == (#bar := False & #foo := True & rnil)
+              areEq `shouldBe` True
+              let areNotEq =
+                      (#foo := False & #bar := False & rnil)
+                      == (#bar := False & #foo := True & rnil)
+              areNotEq `shouldBe` False
        it "combine works" $
            do let rc = r1 ++: (#bar := True & rnil)
               rc &. #foo `shouldBe` "Hi"
