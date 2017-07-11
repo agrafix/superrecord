@@ -90,6 +90,15 @@ main = hspec $
               toNative rb `shouldBe` SomeType "hello" 123
               let rc = (#other := True & #st_bar := 123 & #st_foo := "hello" & rnil)
               toNative rc `shouldBe` SomeType "hello" 123
+       it "can be constructed in any order" $
+           do let areEq =
+                      (#foo := True & #bar := False & rnil)
+                      == (#bar := False & #foo := True & rnil)
+              areEq `shouldBe` True
+              let areNotEq =
+                      (#foo := False & #bar := False & rnil)
+                      == (#bar := False & #foo := True & rnil)
+              areNotEq `shouldBe` False
        it "combine works" $
            do let rc = r1 ++: (#bar := True & rnil)
               rc &. #foo `shouldBe` "Hi"
