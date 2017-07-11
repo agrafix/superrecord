@@ -180,13 +180,13 @@ instance RecCopy '[] lts rts where
 instance
     ( Has l rts t
     , Has l lts t
-    , RecCopy (RemoveAccessTo l lts) lts rts
+    , RecCopy (RemoveAccessTo l (l := t ': pts)) lts rts
     ) => RecCopy (l := t ': pts) lts rts where
-    recCopyInto (_ :: Proxy (l := t ': pts)) lts prxy tgt# s# =
+    recCopyInto _ lts prxy tgt# s# =
         let lbl :: FldProxy l
             lbl = FldProxy
             val = get lbl lts
-            pNext :: Proxy (RemoveAccessTo l (l := t ': lts))
+            pNext :: Proxy (RemoveAccessTo l (l := t ': pts))
             pNext = Proxy
             !(I# setAt#) =
                 fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l rts)))
@@ -425,20 +425,24 @@ getPath = getPath'
 -- | Combine two records
 combine ::
     forall lhs rhs.
-    (KnownNat (RecSize lhs), KnownNat (RecSize rhs), KnownNat (RecSize lhs + RecSize rhs))
+    ( KnownNat (RecSize lhs)
+    , KnownNat (RecSize rhs)
+    , KnownNat (RecSize lhs + RecSize rhs)
+    , RecCopy lhs lhs (Sort (RecAppend lhs rhs))
+    , RecCopy rhs rhs (Sort (RecAppend lhs rhs))
+    )
     => Rec lhs
     -> Rec rhs
-    -> Rec (RecAppend lhs rhs)
-combine (Rec l#) (Rec r#) =
-    let !(I# sizeL#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lhs))
-        !(I# sizeR#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize rhs))
-        !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lhs + RecSize rhs))
+    -> Rec (Sort (RecAppend lhs rhs))
+combine lts rts =
+    let !(I# size#) =
+            fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lhs + RecSize rhs))
     in unsafePerformIO $! IO $ \s# ->
             case newSmallArray# size# (error "No value") s# of
               (# s'#, arr# #) ->
-                  case copySmallArray# r# 0# arr# 0# sizeR# s'# of
+                  case recCopyInto (Proxy :: Proxy lhs) lts (Proxy :: Proxy (Sort (RecAppend lhs rhs))) arr# s'# of
                     s''# ->
-                        case copySmallArray# l# 0# arr# sizeR# sizeL# s''# of
+                        case recCopyInto (Proxy :: Proxy rhs) rts (Proxy :: Proxy (Sort (RecAppend lhs rhs))) arr# s''# of
                           s'''# ->
                               case unsafeFreezeSmallArray# arr# s'''# of
                                 (# s''''#, a# #) -> (# s''''#, Rec a# #)
@@ -447,10 +451,15 @@ combine (Rec l#) (Rec r#) =
 -- | Alias for 'combine'
 (++:) ::
     forall lhs rhs.
-    (KnownNat (RecSize lhs), KnownNat (RecSize rhs), KnownNat (RecSize lhs + RecSize rhs))
+    ( KnownNat (RecSize lhs)
+    , KnownNat (RecSize rhs)
+    , KnownNat (RecSize lhs + RecSize rhs)
+    , RecCopy lhs lhs (Sort (RecAppend lhs rhs))
+    , RecCopy rhs rhs (Sort (RecAppend lhs rhs))
+    )
     => Rec lhs
     -> Rec rhs
-    -> Rec (RecAppend lhs rhs)
+    -> Rec (Sort (RecAppend lhs rhs))
 (++:) = combine
 {-# INLINE (++:) #-}
 
@@ -493,6 +502,7 @@ reflectRec ::
     -> Rec lts
     -> [r]
 reflectRec _ f r =
+    reverse $
     recApply (\(Dict :: Dict (c a)) s v xs -> (f s v : xs)) r (Proxy :: Proxy lts) []
 {-# INLINE reflectRec #-}
 
@@ -630,7 +640,9 @@ instance
 instance
     ( FromNative l lhs
     , FromNative r rhs
-    , lts ~ RecAppend lhs rhs
+    , lts ~ Sort (RecAppend lhs rhs)
+    , RecCopy lhs lhs lts
+    , RecCopy rhs rhs lts
     , KnownNat (RecSize lhs)
     , KnownNat (RecSize rhs)
     , KnownNat (RecSize lhs + RecSize rhs)
