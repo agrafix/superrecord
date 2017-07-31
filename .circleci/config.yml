@@ -41,7 +41,7 @@ jobs:
           command: 'stack --resolver nightly setup'
       - run:
           name: stack install dependencies
-          command: 'stack --resolver nightly build --test --bench --only-dependencies'
+          command: 'stack --resolver nightly build --test --only-dependencies'
       - save_cache:
           key: stack-cache-ghc82
           paths:
@@ -53,9 +53,6 @@ jobs:
       - run:
           name: stack test
           command: 'stack --resolver nightly test --fast'
-      - run:
-          name: build benchmarks
-          command: 'stack --resolver nightly build --fast --bench --no-run-benchmarks'
 
 workflows:
   version: 2
