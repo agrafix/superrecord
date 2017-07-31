@@ -10,6 +10,7 @@ module Main where
 
 import SuperRecord
 
+import Control.Monad.Reader
 import Data.Aeson
 import GHC.Generics (Generic)
 import Test.Hspec
@@ -49,6 +50,9 @@ polyFun2 r =
 rNested :: Record '["foo" := Record '["bar" := Int] ]
 rNested =
     #foo := (#bar := 213 & rnil) & rnil
+
+mtlAsk :: (MonadReader (Rec env) m, Has "id" env Int) => m Int
+mtlAsk = asksR #id
 
 main :: TestRecAppend => IO ()
 main = hspec $
@@ -127,3 +131,5 @@ main = hspec $
               decode (encode r2) `shouldBe` Just r2
               decode (encode rNested) `shouldBe` Just rNested
               decode "{\"foo\": true}" `shouldBe` Just (#foo := True & rnil)
+       it "reader works" $
+           do runReaderT mtlAsk (#id := 123 & rnil) `shouldReturn` 123
