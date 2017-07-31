@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -62,7 +63,7 @@ import Data.Aeson.Types (Parser)
 import Data.Constraint
 import Data.Proxy
 import Data.Typeable
-import GHC.Base (Int(..))
+import GHC.Base (Int(..), Any)
 import GHC.Generics
 import GHC.IO ( IO(..) )
 import GHC.OverloadedLabels
@@ -99,7 +100,11 @@ data FldProxy (t :: Symbol)
     deriving (Show, Read, Eq, Ord, Typeable)
 
 instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
+#if MIN_VERSION_base(4, 10, 0)
+    fromLabel = FldProxy
+#else
     fromLabel _ = FldProxy
+#endif
 
 -- | The core record type. Prefer this type when manually writing type
 -- signatures
@@ -663,8 +668,13 @@ fromNative = fromNative' . from
 
 -- | Conversion helper to bring a record back into a Haskell type. Note that the
 -- native Haskell type must be an instance of 'Generic'
+#if MIN_VERSION_base(4, 10, 0)
+class ToNative a lts where
+    toNative' :: Rec lts -> a x
+#else
 class ToNative a lts | a -> lts where
     toNative' :: Rec lts -> a x
+#endif
 
 instance ToNative cs lts => ToNative (D1 m cs) lts where
     toNative' xs = M1 $ toNative' xs
