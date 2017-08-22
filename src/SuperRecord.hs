@@ -52,6 +52,7 @@ module SuperRecord
     , RecNfData(..)
     , RecSize, RemoveAccessTo
     , FldProxy(..), RecDeepTy
+    , RecAll
     , KeyDoesNotExist
     )
 where
@@ -236,6 +237,10 @@ unsafeRCons (_ := val) (Rec vec#) =
 {-# INLINE (&) #-}
 
 infixr 5 &
+
+type family RecAll (c :: u -> Constraint) (rs :: [u]) :: Constraint where
+  RecAll c '[] = ()
+  RecAll c (r ': rs) = (c r, RecAll c rs)
 
 type family Sort (lts :: [*]) where
     Sort '[] = '[]
