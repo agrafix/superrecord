@@ -49,6 +49,7 @@ module SuperRecord
     , Rec
     , RecCopy
     , RecTyIdxH
+    , KnownBackend
     , showRec, RecKeys(..), recKeys
     , RecEq(..)
     , recToValue, recToEncoding
@@ -122,6 +123,8 @@ type family MutBackend (arr :: * -> TYPE 'PtrRepUnlifted)
   | marr -> arr where
   MutBackend SmallArray# = SmallMutableArray#
   MutBackend Array# = MutableArray#
+
+type KnownBackend t = Backend (SizeToBackend (RecSize t <=? 128))
 
 class Backend (ty :: * -> TYPE 'PtrRepUnlifted) where
   new# :: Int# -> a -> State# s -> (# State# s, (MutBackend ty) s a #)

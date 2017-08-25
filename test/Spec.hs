@@ -40,10 +40,16 @@ r1 =
 r2 :: Record '["foo" := String]
 r2 = #foo := "He" & rnil
 
-polyFun :: Has "foo" lts String => Rec lts -> String
+polyFun
+  :: ( KnownBackend lts, Has "foo" lts String )
+  => Rec lts
+  -> String
 polyFun = get #foo
 
-polyFun2 :: HasOf '["foo" := String, "bar" := Bool] lts => Rec lts -> String
+polyFun2
+  :: (KnownBackend lts, HasOf '["foo" := String, "bar" := Bool] lts)
+  => Rec lts
+  -> String
 polyFun2 r =
     get #foo r ++ " -> " ++ show (get #bar r)
 
@@ -51,7 +57,10 @@ rNested :: Record '["foo" := Record '["bar" := Int] ]
 rNested =
     #foo := (#bar := 213 & rnil) & rnil
 
-mtlAsk :: (MonadReader (Rec env) m, Has "id" env Int) => m Int
+mtlAsk
+  :: ( KnownBackend env
+     , MonadReader (Rec env) m
+     , Has "id" env Int) => m Int
 mtlAsk = asksR #id
 
 main :: TestRecAppend => IO ()
