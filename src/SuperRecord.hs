@@ -136,19 +136,31 @@ class Backend (ty :: * -> TYPE 'PtrRepUnlifted) where
 
 instance Backend SmallArray# where
   new# = newSmallArray#
+  {-# INLINE new# #-}
   unsafeFreeze# = unsafeFreezeSmallArray#
+  {-# INLINE unsafeFreeze# #-}
   unsafeThaw# = unsafeThawSmallArray#
+  {-# INLINE unsafeThaw# #-}
   copy# = copySmallArray#
+  {-# INLINE copy# #-}
   write# = writeSmallArray#
+  {-# INLINE write# #-}
   index# = indexSmallArray#
+  {-# INLINE index# #-}
 
 instance Backend Array# where
   new# = newArray#
+  {-# INLINE new# #-}
   unsafeFreeze# = unsafeFreezeArray#
+  {-# INLINE unsafeFreeze# #-}
   unsafeThaw# = unsafeThawArray#
+  {-# INLINE unsafeThaw# #-}
   copy# = copyArray#
+  {-# INLINE copy# #-}
   write# = writeArray#
+  {-# INLINE write# #-}
   index# = indexArray#
+  {-# INLINE index# #-}
 
 -- | The core record type. Prefer this type when manually writing type
 -- signatures
