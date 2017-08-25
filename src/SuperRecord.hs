@@ -1,4 +1,6 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE TypeInType #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -12,6 +14,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
@@ -19,6 +22,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE MagicHash #-}
+
 module SuperRecord
     ( -- * Basics
       (:=)(..)
@@ -45,6 +49,7 @@ module SuperRecord
     , Rec
     , RecCopy
     , RecTyIdxH
+    , KnownBackend
     , showRec, RecKeys(..), recKeys
     , RecEq(..)
     , recToValue, recToEncoding
@@ -62,17 +67,19 @@ import Control.Monad.Reader
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Constraint
+import Data.Kind
 import Data.Proxy
 import Data.Typeable
 import GHC.Base (Int(..), Any)
+import GHC.Exts
 import GHC.Generics
 import GHC.IO ( IO(..) )
 import GHC.OverloadedLabels
-import GHC.Prim
-import GHC.TypeLits
+import GHC.TypeLits (Nat, KnownNat, natVal', Symbol, symbolVal, KnownSymbol, ErrorMessage(..), CmpSymbol, TypeError, type (+), type (-), type (<=?))
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Control.Monad.State as S
 import qualified Data.Text as T
+
 
 -- | Field named @l@ labels value of type @t@ adapted from the awesome /labels/ package.
 -- Example: @(#name := \"Chris\") :: (\"name\" := String)@
@@ -107,15 +114,65 @@ instance l ~ l' => IsLabel (l :: Symbol) (FldProxy l') where
     fromLabel _ = FldProxy
 #endif
 
+-- | Maps <= 128 ~ True to SmallArray# and the rest to Array#
+type family SizeToBackend (b :: Bool) :: * -> TYPE 'PtrRepUnlifted where
+  SizeToBackend 'True = SmallArray#
+  SizeToBackend 'False = Array#
+
+type family MutBackend (arr :: * -> TYPE 'PtrRepUnlifted)
+  = (marr :: * -> * -> TYPE 'PtrRepUnlifted)
+  | marr -> arr where
+  MutBackend SmallArray# = SmallMutableArray#
+  MutBackend Array# = MutableArray#
+
+type KnownBackend t = Backend (SizeToBackend (RecSize t <=? 128))
+
+class Backend (ty :: * -> TYPE 'PtrRepUnlifted) where
+  new# :: Int# -> a -> State# s -> (# State# s, (MutBackend ty) s a #)
+  unsafeFreeze# :: (MutBackend ty) s a -> State# s -> (# State# s, ty a #)
+  unsafeThaw# :: ty a -> State# s -> (# State# s, (MutBackend ty) s a #)
+  copy# :: ty a -> Int# -> (MutBackend ty) s a -> Int# -> Int# -> State# s -> State# s
+  write# :: (MutBackend ty) s a -> Int# -> a -> State# s -> State# s
+  index# :: ty a -> Int# -> (# a #)
+
+instance Backend SmallArray# where
+  new# = newSmallArray#
+  {-# INLINE new# #-}
+  unsafeFreeze# = unsafeFreezeSmallArray#
+  {-# INLINE unsafeFreeze# #-}
+  unsafeThaw# = unsafeThawSmallArray#
+  {-# INLINE unsafeThaw# #-}
+  copy# = copySmallArray#
+  {-# INLINE copy# #-}
+  write# = writeSmallArray#
+  {-# INLINE write# #-}
+  index# = indexSmallArray#
+  {-# INLINE index# #-}
+
+instance Backend Array# where
+  new# = newArray#
+  {-# INLINE new# #-}
+  unsafeFreeze# = unsafeFreezeArray#
+  {-# INLINE unsafeFreeze# #-}
+  unsafeThaw# = unsafeThawArray#
+  {-# INLINE unsafeThaw# #-}
+  copy# = copyArray#
+  {-# INLINE copy# #-}
+  write# = writeArray#
+  {-# INLINE write# #-}
+  index# = indexArray#
+  {-# INLINE index# #-}
+
 -- | The core record type. Prefer this type when manually writing type
 -- signatures
 type Record lts = Rec (Sort lts)
 
 -- | Internal record type. When manually writing an explicit type signature for
 -- a record, use 'Record' instead. For abstract type signatures 'Rec' will work
--- well.
-data Rec (lts :: [*])
-   = Rec { _unRec :: SmallArray# Any } -- Note that the values are physically in reverse order
+-- well
+data Rec (lts :: [*]) =
+  Rec { _unRec :: SizeToBackend (RecSize lts <=? 128) Any }
+  -- Note that the values are physically in reverse order
 
 instance (RecApply lts lts Show) => Show (Rec lts) where
     show = show . showRec
@@ -148,7 +205,10 @@ unsafeRnil (I# n#) =
     case newSmallArray# n# (error "No Value") s# of
       (# s'#, arr# #) ->
           case unsafeFreezeSmallArray# arr# s'# of
-            (# s''#, a# #) -> (# s''# , Rec a# #)
+            (# s''#, a# #) ->
+              let r :: Rec '[]
+                  r = Rec a#
+              in (# s''# , r #)
 {-# INLINE unsafeRnil #-}
 
 -- | Prepend a record entry to a record 'Rec'
@@ -157,19 +217,20 @@ rcons ::
     ( RecSize lts ~ s
     , KnownNat s
     , KnownNat (RecVecIdxPos l (Sort (l := t ': lts)))
+    , Backend (SizeToBackend (RecSize (SortInsert (l := t) (Sort lts)) <=? 128))
     , KeyDoesNotExist l lts
     , RecCopy lts lts (Sort (l := t ': lts))
     )
     => l := t -> Rec lts -> Rec (Sort (l := t ': lts))
 rcons (_ := val) lts =
     unsafePerformIO $! IO $ \s# ->
-    case newSmallArray# newSize# (error "No value") s# of
+    case new# newSize# (error "No value") s# of
       (# s'#, arr# #) ->
           case recCopyInto (Proxy :: Proxy lts) lts (Proxy :: Proxy (Sort (l := t ': lts))) arr# s'# of
             s''# ->
-                case writeSmallArray# arr# setAt# (unsafeCoerce# val) s''# of
-                  s'''# ->
-                      case unsafeFreezeSmallArray# arr# s'''# of
+                case write# arr# setAt# (unsafeCoerce# val) s''# of
+                  s'''# -> do
+                      case unsafeFreeze# arr# s'''# of
                         (# s''''#, a# #) -> (# s''''#, Rec a# #)
     where
         !(I# setAt#) =
@@ -179,9 +240,11 @@ rcons (_ := val) lts =
 {-# INLINE rcons #-}
 
 class RecCopy (pts :: [*]) (lts :: [*]) (rts :: [*]) where
-    recCopyInto ::
-        Proxy pts -> Rec lts -> Proxy rts
-        -> SmallMutableArray# RealWorld Any
+    recCopyInto
+        :: Proxy pts
+        -> Rec lts
+        -> Proxy rts
+        -> MutBackend (SizeToBackend (RecSize rts <=? 128)) RealWorld Any
         -> State# RealWorld
         -> State# RealWorld
 
@@ -191,6 +254,8 @@ instance RecCopy '[] lts rts where
 instance
     ( Has l rts t
     , Has l lts t
+    , Backend (SizeToBackend (RecSize lts <=? 128))
+    , Backend (SizeToBackend (RecSize rts <=? 128))
     , RecCopy (RemoveAccessTo l (l := t ': pts)) lts rts
     ) => RecCopy (l := t ': pts) lts rts where
     recCopyInto _ lts prxy tgt# s# =
@@ -201,23 +266,28 @@ instance
             pNext = Proxy
             !(I# setAt#) =
                 fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l rts)))
-        in case writeSmallArray# tgt# setAt# (unsafeCoerce# val) s# of
+        in case write# tgt# setAt# (unsafeCoerce# val) s# of
              s'# -> recCopyInto pNext lts prxy tgt# s'#
 
 -- | Prepend a record entry to a record 'Rec'. Assumes that the record was created with
 -- 'unsafeRnil' and still has enough free slots, mutates the original 'Rec' which should
 -- not be reused after
 unsafeRCons ::
-    forall l t lts s.
-    (RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts)
+    forall l t lts s backend.
+    ( SizeToBackend (s <=? 128) ~ backend
+    , SizeToBackend ((1 + s) <=? 128) ~ backend
+    , Backend backend
+    , RecSize lts ~ s
+    , KnownNat s
+    , KeyDoesNotExist l lts)
     => l := t -> Rec lts -> Rec (l := t ': lts)
 unsafeRCons (_ := val) (Rec vec#) =
     unsafePerformIO $! IO $ \s# ->
-    case unsafeThawSmallArray# vec# s# of
+    case unsafeThaw# vec# s# of
       (# s'#, arr# #) ->
-          case writeSmallArray# arr# size# (unsafeCoerce# val) s'# of
+          case write# arr# size# (unsafeCoerce# val) s'# of
             s''# ->
-                case unsafeFreezeSmallArray# arr# s''# of
+                case unsafeFreeze# arr# s''# of
                   (# s'''#, a# #) -> (# s'''#, Rec a# #)
     where
         !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# s)
@@ -231,6 +301,7 @@ unsafeRCons (_ := val) (Rec vec#) =
     , KnownNat (RecVecIdxPos l (Sort (l := t ': lts)))
     , KeyDoesNotExist l lts
     , RecCopy lts lts (Sort (l := t ': lts))
+    , Backend (SizeToBackend (RecSize (SortInsert (l := t) (Sort lts)) <=? 128))
     )
     => l := t -> Rec lts -> Rec (Sort (l := t ': lts))
 (&) = rcons
@@ -312,28 +383,39 @@ type Has l lts v =
 -- | Get an existing record field
 get ::
     forall l v lts.
-    ( Has l lts v )
+    ( Has l lts v
+    , Backend (SizeToBackend (RecSize lts <=? 128)))
     => FldProxy l -> Rec lts -> v
 get _ (Rec vec#) =
     let !(I# readAt#) =
             fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l lts)))
         anyVal :: Any
         anyVal =
-           case indexSmallArray# vec# readAt# of
+           case index# vec# readAt# of
              (# a# #) -> a#
     in unsafeCoerce# anyVal
 {-# INLINE get #-}
 
 -- | Alias for 'get'
-(&.) :: forall l v lts. (Has l lts v) => Rec lts -> FldProxy l -> v
+(&.) ::
+    forall l v lts.
+    ( Has l lts v
+    , Backend (SizeToBackend (RecSize lts <=? 128)) )
+    => Rec lts
+    -> FldProxy l
+    -> v
 (&.) = flip get
 infixl 3 &.
 
 -- | Update an existing record field
 set ::
     forall l v lts.
-    (Has l lts v)
-    => FldProxy l -> v -> Rec lts -> Rec lts
+    ( Has l lts v
+    , Backend (SizeToBackend (RecSize lts <=? 128)) )
+    => FldProxy l
+    -> v
+    -> Rec lts
+    -> Rec lts
 set _ !val (Rec vec#) =
     let !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lts))
         !(I# setAt#) = fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l lts)))
@@ -341,13 +423,13 @@ set _ !val (Rec vec#) =
         !dynVal = unsafeCoerce# val
         r2 =
             unsafePerformIO $! IO $ \s# ->
-            case newSmallArray# size# (error "No value") s# of
+            case new# size# (error "No value") s# of
               (# s'#, arr# #) ->
-                  case copySmallArray# vec# 0# arr# 0# size# s'# of
+                  case copy# vec# 0# arr# 0# size# s'# of
                     s''# ->
-                        case writeSmallArray# arr# setAt# dynVal s''# of
+                        case write# arr# setAt# dynVal s''# of
                           s'''# ->
-                              case unsafeFreezeSmallArray# arr# s'''# of
+                              case unsafeFreeze# arr# s'''# of
                                 (# s''''#, a# #) -> (# s''''#, Rec a# #)
     in r2
 {-# INLINE set #-}
@@ -355,8 +437,12 @@ set _ !val (Rec vec#) =
 -- | Update an existing record field
 modify ::
     forall l v lts.
-    (Has l lts v)
-    => FldProxy l -> (v -> v) -> Rec lts -> Rec lts
+    ( Has l lts v
+    , Backend (SizeToBackend (RecSize lts <=? 128)) )
+    => FldProxy l
+    -> (v -> v)
+    -> Rec lts
+    -> Rec lts
 modify lbl fun r = set lbl (fun $ get lbl r) r
 {-# INLINE modify #-}
 
@@ -398,7 +484,11 @@ class RecApplyPath p x where
     -- | Perform a deep read
     getPath' :: p -> Rec x -> RecDeepTy p x
 
-instance (Has l lts t, t ~ RecDeepTy (FldProxy l) lts) => RecApplyPath (FldProxy l) lts where
+instance
+    ( Has l lts t
+    , t ~ RecDeepTy (FldProxy l) lts
+    , Backend (SizeToBackend (RecSize lts <=? 128))
+    ) => RecApplyPath (FldProxy l) lts where
     setPath' = modify
     {-# INLINE setPath' #-}
 
@@ -411,6 +501,7 @@ instance
     , Has l lts v
     , v ~ Rec rts
     , RecApplyPath more rts
+    , Backend (SizeToBackend (RecSize lts <=? 128))
     ) => RecApplyPath (l :& more) lts where
     setPath' (x :& more) v r =
         let innerVal :: Rec rts
@@ -446,6 +537,7 @@ combine ::
     , KnownNat (RecSize lhs + RecSize rhs)
     , RecCopy lhs lhs (Sort (RecAppend lhs rhs))
     , RecCopy rhs rhs (Sort (RecAppend lhs rhs))
+    , Backend (SizeToBackend (RecSize (Sort (RecAppendH lhs rhs rhs '[])) <=? 128))
     )
     => Rec lhs
     -> Rec rhs
@@ -454,13 +546,13 @@ combine lts rts =
     let !(I# size#) =
             fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lhs + RecSize rhs))
     in unsafePerformIO $! IO $ \s# ->
-            case newSmallArray# size# (error "No value") s# of
+            case new# size# (error "No value") s# of
               (# s'#, arr# #) ->
                   case recCopyInto (Proxy :: Proxy lhs) lts (Proxy :: Proxy (Sort (RecAppend lhs rhs))) arr# s'# of
                     s''# ->
                         case recCopyInto (Proxy :: Proxy rhs) rts (Proxy :: Proxy (Sort (RecAppend lhs rhs))) arr# s''# of
                           s'''# ->
-                              case unsafeFreezeSmallArray# arr# s'''# of
+                              case unsafeFreeze# arr# s'''# of
                                 (# s''''#, a# #) -> (# s''''#, Rec a# #)
 {-# INLINE combine #-}
 
@@ -472,6 +564,7 @@ combine lts rts =
     , KnownNat (RecSize lhs + RecSize rhs)
     , RecCopy lhs lhs (Sort (RecAppend lhs rhs))
     , RecCopy rhs rhs (Sort (RecAppend lhs rhs))
+    , Backend (SizeToBackend (RecSize (Sort (RecAppendH lhs rhs rhs '[])) <=? 128))
     )
     => Rec lhs
     -> Rec rhs
@@ -562,6 +655,7 @@ instance
     ( KnownSymbol l
     , RecApply rts (RemoveAccessTo l lts) c
     , Has l rts v
+    , Backend (SizeToBackend (RecSize rts <=? 128))
     , c v
     ) => RecApply rts (l := t ': lts) c where
     recApply f r (_ :: Proxy (l := t ': lts)) b =
@@ -583,6 +677,7 @@ instance RecEq rts '[] where
 instance
     ( RecEq rts (RemoveAccessTo l lts)
     , Has l rts v
+    , Backend (SizeToBackend (RecSize rts <=? 128))
     , Eq v
     ) => RecEq rts (l := t ': lts) where
     recEq r1 r2 (_ :: Proxy (l := t ': lts)) =
@@ -608,8 +703,15 @@ instance RecJsonParse '[] where
     recJsonParse initSize _ = pure (unsafeRnil initSize)
 
 instance
-    ( KnownSymbol l, FromJSON t, RecJsonParse lts
-    , RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts
+    ( KnownSymbol l
+    , SizeToBackend (s <=? 128) ~ backend
+    , SizeToBackend ((1 + s) <=? 128) ~ backend
+    , Backend backend
+    , FromJSON t
+    , RecJsonParse lts
+    , RecSize lts ~ s
+    , KnownNat s
+    , KeyDoesNotExist l lts
     ) => RecJsonParse (l := t ': lts) where
     recJsonParse initSize obj =
         do let lbl :: FldProxy l
@@ -629,6 +731,7 @@ instance
     ( Has l rts v
     , NFData v
     , RecNfData (RemoveAccessTo l lts) rts
+    , Backend (SizeToBackend (RecSize rts <=? 128))
     ) => RecNfData (l := t ': lts) rts where
     recNfData (_ :: (Proxy (l := t ': lts))) r =
         let !v = get (FldProxy :: FldProxy l) r
@@ -662,6 +765,7 @@ instance
     , KnownNat (RecSize lhs)
     , KnownNat (RecSize rhs)
     , KnownNat (RecSize lhs + RecSize rhs)
+    , Backend (SizeToBackend (RecSize lts <=? 128))
     )
     => FromNative (l :*: r) lts where
     fromNative' (l :*: r) = fromNative' l ++: fromNative' r
@@ -688,16 +792,16 @@ instance ToNative cs lts => ToNative (C1 m cs) lts where
     toNative' xs = M1 $ toNative' xs
 
 instance
-    (Has name lts t)
-    => ToNative (S1 ('MetaSel ('Just name) p s l) (Rec0 t)) lts
+    ( Has name lts t
+    , Backend (SizeToBackend (RecSize lts <=? 128))
+    ) => ToNative (S1 ('MetaSel ('Just name) p s l) (Rec0 t)) lts
     where
     toNative' r =
         M1 $ K1 (get (FldProxy :: FldProxy name) r)
 
 instance
     ( ToNative l lts
-    , ToNative r lts
-    )
+    , ToNative r lts)
     => ToNative (l :*: r) lts where
     toNative' r = toNative' r :*: toNative' r
 
@@ -708,7 +812,12 @@ toNative = to . toNative'
 
 -- | Like 'asks' for 'MonadReader', but you provide a record field you would like
 -- to read from your environment
-asksR :: (Has lbl lts v, MonadReader (Rec lts) m) => FldProxy lbl -> m v
+asksR ::
+    ( Has lbl lts v
+    , MonadReader (Rec lts) m
+    , Backend (SizeToBackend (RecSize lts <=? 128))
+    ) => FldProxy lbl
+    -> m v
 asksR f = asks (get f)
 {-# INLINE asksR #-}
 
@@ -720,17 +829,34 @@ asksRP p = asks (getPath p)
 
 -- | Like 'gets' for 'MonadState', but you provide a record field you would like
 -- to read from your environment
-getsR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> m v
+getsR ::
+    ( Has lbl lts v
+    , S.MonadState (Rec lts) m
+    , Backend (SizeToBackend (RecSize lts <=? 128)))
+    => FldProxy lbl
+    -> m v
 getsR f = S.gets (get f)
 {-# INLINE getsR #-}
 
 -- | Similar to 'put' for 'MonadState', but you only set a single record field
-setsR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> v -> m ()
+setsR ::
+    ( Has lbl lts v
+    , S.MonadState (Rec lts) m
+    , Backend (SizeToBackend (RecSize lts <=? 128)))
+    => FldProxy lbl
+    -> v
+    -> m ()
 setsR f v = S.modify (set f v)
 {-# INLINE setsR #-}
 
 -- | Similar to 'modify' for 'MonadState', but you update a single record field
-modifiesR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> (v -> v) -> m ()
+modifiesR ::
+    ( Has lbl lts v
+    , S.MonadState (Rec lts) m
+    , Backend (SizeToBackend (RecSize lts <=? 128)))
+    => FldProxy lbl
+    -> (v -> v)
+    -> m ()
 modifiesR f go = S.modify (modify f go)
 {-# INLINE modifiesR #-}
 
@@ -753,7 +879,10 @@ type Lens s t a b = forall f. Functor f => (a -> f b) -> (s -> f t)
 
 -- | Convert a field label to a lens
 lens ::
-    Has l lts v => FldProxy l -> Lens (Rec lts) (Rec lts) v v
+    ( Has l lts v
+    , Backend (SizeToBackend (RecSize lts <=? 128)))
+    => FldProxy l
+    -> Lens (Rec lts) (Rec lts) v v
 lens lbl f r =
     fmap (\v -> set lbl v r) (f (get lbl r))
 {-# INLINE lens #-}
