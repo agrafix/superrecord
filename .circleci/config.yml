@@ -28,6 +28,33 @@ jobs:
       - run:
           name: build benchmarks
           command: 'stack build --fast --bench --no-run-benchmarks'
+  build-ghcjs:
+    working_directory: ~/superrecord
+    docker:
+      - image: fpco/stack-build:lts-8.20
+        environment:
+          STACK_YAML: stack-frontend.yaml
+    steps:
+      - checkout
+      - restore_cache:
+          key: stack-cache-ghcjs
+      - run:
+          name: stack setup
+          command: 'stack setup'
+      - run:
+          name: stack install dependencies
+          command: 'stack build --test --bench --only-dependencies'
+      - save_cache:
+          key: stack-cache-ghcjs
+          paths:
+            - ~/.stack
+            - ~/superrecord/.stack-work
+      - run:
+          name: stack build
+          command: 'stack build --fast --pedantic'
+      - run:
+          name: stack test
+          command: 'stack test --fast'
   build-ghc82:
     working_directory: ~/superrecord2
     docker:
@@ -63,3 +90,4 @@ workflows:
     jobs:
       - build
       - build-ghc82
+      - build-ghcjs
