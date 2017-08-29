@@ -46,7 +46,7 @@ jobs:
           command: 'stack setup'
       - run:
           name: stack install dependencies
-          command: 'stack build --test --bench --only-dependencies'
+          command: 'stack build --test --only-dependencies'
       - save_cache:
           key: stack-cache-ghcjs
           paths:
