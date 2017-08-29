@@ -36,6 +36,9 @@ jobs:
           STACK_YAML: stack-frontend.yaml
     steps:
       - checkout
+      - run:
+          name: setup node etc
+          command: 'apt-get update; apt-get install nodejs npm; npm install -g n; n 6.1.0'
       - restore_cache:
           key: stack-cache-ghcjs
       - run:
