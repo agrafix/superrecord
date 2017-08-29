@@ -37,6 +37,9 @@ jobs:
       - restore_cache:
           key: stack-cache-ghc82
       - run:
+          name: stack upgrade
+          command: 'stack upgrade'
+      - run:
           name: stack setup
           command: 'stack --resolver nightly setup'
       - run:
