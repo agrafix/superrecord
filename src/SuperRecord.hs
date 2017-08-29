@@ -19,6 +19,11 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE MagicHash #-}
+
+#ifdef JS_RECORD
+{-# LANGUAGE JavaScriptFFI #-}
+#endif
+
 module SuperRecord
     ( -- * Basics
       (:=)(..)
@@ -74,6 +79,12 @@ import System.IO.Unsafe (unsafePerformIO)
 import qualified Control.Monad.State as S
 import qualified Data.Text as T
 
+#ifdef JS_RECORD
+import GHCJS.Marshal
+import qualified Data.JSString as JSS
+import qualified JavaScript.Object.Internal as JS
+#endif
+
 -- | Field named @l@ labels value of type @t@ adapted from the awesome /labels/ package.
 -- Example: @(#name := \"Chris\") :: (\"name\" := String)@
 data label := value = KnownSymbol label => FldProxy label := !value
@@ -115,7 +126,25 @@ type Record lts = Rec (Sort lts)
 -- a record, use 'Record' instead. For abstract type signatures 'Rec' will work
 -- well.
 data Rec (lts :: [*])
-   = Rec { _unRec :: SmallArray# Any } -- Note that the values are physically in reverse order
+   = Rec
+   {
+#ifndef JS_RECORD
+       _unRec :: SmallArray# Any -- Note that the values are physically in reverse order
+#else
+       _unRec :: !JS.Object
+#endif
+   }
+
+#ifdef JS_RECORD
+copyObject :: JS.Object -> IO JS.Object
+copyObject obj =
+    do objNew <- JS.create
+       props <- JS.listProps obj
+       forM_ props $ \prop ->
+           do val <- JS.unsafeGetProp prop obj
+              JS.unsafeSetProp prop val objNew
+       pure objNew
+#endif
 
 instance (RecApply lts lts Show) => Show (Rec lts) where
     show = show . showRec
@@ -143,12 +172,17 @@ rnil = unsafeRnil 0
 
 -- | An empty record with an initial size for the record
 unsafeRnil :: Int -> Rec '[]
+#ifndef JS_RECORD
 unsafeRnil (I# n#) =
     unsafePerformIO $! IO $ \s# ->
     case newSmallArray# n# (error "No Value") s# of
       (# s'#, arr# #) ->
           case unsafeFreezeSmallArray# arr# s'# of
             (# s''#, a# #) -> (# s''# , Rec a# #)
+#else
+unsafeRnil _ =
+    unsafePerformIO $! Rec <$> JS.create
+#endif
 {-# INLINE unsafeRnil #-}
 
 -- | Prepend a record entry to a record 'Rec'
@@ -159,8 +193,13 @@ rcons ::
     , KnownNat (RecVecIdxPos l (Sort (l := t ': lts)))
     , KeyDoesNotExist l lts
     , RecCopy lts lts (Sort (l := t ': lts))
+#ifdef JS_RECORD
+    , ToJSVal t
+#endif
     )
     => l := t -> Rec lts -> Rec (Sort (l := t ': lts))
+
+#ifndef JS_RECORD
 rcons (_ := val) lts =
     unsafePerformIO $! IO $ \s# ->
     case newSmallArray# newSize# (error "No value") s# of
@@ -176,6 +215,14 @@ rcons (_ := val) lts =
             fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l (Sort (l := t ': lts)))))
         newSize# = size# +# 1#
         !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# s)
+#else
+rcons (lbl := val) (Rec obj) =
+    Rec $! unsafePerformIO $!
+    do obj' <- copyObject obj
+       val' <- toJSVal val
+       JS.unsafeSetProp (JSS.pack $ symbolVal lbl) val' obj'
+       pure obj'
+#endif
 {-# INLINE rcons #-}
 
 class RecCopy (pts :: [*]) (lts :: [*]) (rts :: [*]) where
@@ -209,8 +256,16 @@ instance
 -- not be reused after
 unsafeRCons ::
     forall l t lts s.
-    (RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts)
+    ( RecSize lts ~ s
+    , KnownNat s
+    , KeyDoesNotExist l lts
+#ifdef JS_RECORD
+    , ToJSVal t
+#endif
+    )
     => l := t -> Rec lts -> Rec (l := t ': lts)
+
+#ifndef JS_RECORD
 unsafeRCons (_ := val) (Rec vec#) =
     unsafePerformIO $! IO $ \s# ->
     case unsafeThawSmallArray# vec# s# of
@@ -221,6 +276,13 @@ unsafeRCons (_ := val) (Rec vec#) =
                   (# s'''#, a# #) -> (# s'''#, Rec a# #)
     where
         !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# s)
+#else
+unsafeRCons (lbl := val) (Rec obj) =
+    Rec $! unsafePerformIO $!
+    do val' <- toJSVal val
+       JS.unsafeSetProp (JSS.pack $ symbolVal lbl) val' obj
+       pure obj
+#endif
 {-# INLINE unsafeRCons #-}
 
 -- | Alias for 'rcons'
@@ -231,6 +293,9 @@ unsafeRCons (_ := val) (Rec vec#) =
     , KnownNat (RecVecIdxPos l (Sort (l := t ': lts)))
     , KeyDoesNotExist l lts
     , RecCopy lts lts (Sort (l := t ': lts))
+#ifdef JS_RECORD
+    , ToJSVal t
+#endif
     )
     => l := t -> Rec lts -> Rec (Sort (l := t ': lts))
 (&) = rcons
@@ -307,13 +372,18 @@ type Has l lts v =
    ( RecTy l lts ~ v
    , KnownNat (RecSize lts)
    , KnownNat (RecVecIdxPos l lts)
+#ifdef JS_RECORD
+   , KnownSymbol l, FromJSVal v, ToJSVal v
+#endif
    )
 
 -- | Get an existing record field
 get ::
     forall l v lts.
-    ( Has l lts v )
+    ( Has l lts v
+    )
     => FldProxy l -> Rec lts -> v
+#ifndef JS_RECORD
 get _ (Rec vec#) =
     let !(I# readAt#) =
             fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l lts)))
@@ -322,6 +392,12 @@ get _ (Rec vec#) =
            case indexSmallArray# vec# readAt# of
              (# a# #) -> a#
     in unsafeCoerce# anyVal
+#else
+get lbl (Rec obj) =
+    unsafePerformIO $!
+    do r <- JS.unsafeGetProp (JSS.pack $ symbolVal lbl) obj
+       fromJSValUnchecked r
+#endif
 {-# INLINE get #-}
 
 -- | Alias for 'get'
@@ -334,6 +410,7 @@ set ::
     forall l v lts.
     (Has l lts v)
     => FldProxy l -> v -> Rec lts -> Rec lts
+#ifndef JS_RECORD
 set _ !val (Rec vec#) =
     let !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lts))
         !(I# setAt#) = fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l lts)))
@@ -350,6 +427,14 @@ set _ !val (Rec vec#) =
                               case unsafeFreezeSmallArray# arr# s'''# of
                                 (# s''''#, a# #) -> (# s''''#, Rec a# #)
     in r2
+#else
+set lbl !val (Rec obj) =
+    unsafePerformIO $!
+    do newObj <- copyObject obj
+       val' <- toJSVal val
+       JS.unsafeSetProp (JSS.pack $ symbolVal lbl) val' newObj
+       pure $ Rec newObj
+#endif
 {-# INLINE set #-}
 
 -- | Update an existing record field
@@ -450,6 +535,8 @@ combine ::
     => Rec lhs
     -> Rec rhs
     -> Rec (Sort (RecAppend lhs rhs))
+
+#ifndef JS_RECORD
 combine lts rts =
     let !(I# size#) =
             fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lhs + RecSize rhs))
@@ -462,6 +549,11 @@ combine lts rts =
                           s'''# ->
                               case unsafeFreezeSmallArray# arr# s'''# of
                                 (# s''''#, a# #) -> (# s''''#, Rec a# #)
+#else
+combine (Rec o1) (Rec o2) =
+    unsafePerformIO $
+    Rec <$> mergeObjs o1 o2
+#endif
 {-# INLINE combine #-}
 
 -- | Alias for 'combine'
@@ -610,6 +702,9 @@ instance RecJsonParse '[] where
 instance
     ( KnownSymbol l, FromJSON t, RecJsonParse lts
     , RecSize lts ~ s, KnownNat s, KeyDoesNotExist l lts
+#ifdef JS_RECORD
+    , ToJSVal t
+#endif
     ) => RecJsonParse (l := t ': lts) where
     recJsonParse initSize obj =
         do let lbl :: FldProxy l
@@ -648,7 +743,11 @@ instance FromNative cs lts => FromNative (C1 m cs) lts where
     fromNative' (M1 xs) = fromNative' xs
 
 instance
-    KnownSymbol name
+    ( KnownSymbol name
+#ifdef JS_RECORD
+    , ToJSVal t
+#endif
+    )
     => FromNative (S1 ('MetaSel ('Just name) p s l) (Rec0 t)) '[name := t]
     where
     fromNative' (M1 (K1 t)) = (FldProxy :: FldProxy name) := t & rnil
@@ -700,6 +799,14 @@ instance
     )
     => ToNative (l :*: r) lts where
     toNative' r = toNative' r :*: toNative' r
+
+#ifdef JS_RECORD
+instance ToJSVal (Rec x) where
+    toJSVal (Rec (JS.Object obj)) = pure obj
+
+instance FromJSVal (Rec x) where
+    fromJSVal jv = pure (Just $ Rec $ JS.Object jv) -- TODO: implement checking!!
+#endif
 
 -- | Convert a record to a native Haskell type
 toNative :: (Generic a, ToNative (Rep a) lts) => Rec lts -> a
@@ -757,3 +864,8 @@ lens ::
 lens lbl f r =
     fmap (\v -> set lbl v r) (f (get lbl r))
 {-# INLINE lens #-}
+
+#ifdef JS_RECORD
+foreign import javascript unsafe "Object.assign({}, $1, $2)" mergeObjs ::
+    JS.Object -> JS.Object -> IO JS.Object
+#endif
