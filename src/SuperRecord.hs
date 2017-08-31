@@ -158,24 +158,25 @@ unsafeRnil _ =
 
 -- | Prepend a record entry to a record 'Rec'
 rcons ::
-    forall l t lts s.
+    forall l t lts s sortedLts.
     ( RecSize lts ~ s
+    , sortedLts ~ Sort (l := t ': lts)
     , KnownNat s
-    , KnownNat (RecVecIdxPos l (Sort (l := t ': lts)))
+    , KnownNat (RecVecIdxPos l sortedLts)
     , KeyDoesNotExist l lts
-    , RecCopy lts lts (Sort (l := t ': lts))
+    , RecCopy lts lts sortedLts
 #ifdef JS_RECORD
     , ToJSVal t
 #endif
     )
-    => l := t -> Rec lts -> Rec (Sort (l := t ': lts))
+    => l := t -> Rec lts -> Rec sortedLts
 
 #ifndef JS_RECORD
 rcons (_ := val) lts =
     unsafePerformIO $! IO $ \s# ->
     case newSmallArray# newSize# (error "No value") s# of
       (# s'#, arr# #) ->
-          case recCopyInto (Proxy :: Proxy lts) lts (Proxy :: Proxy (Sort (l := t ': lts))) arr# s'# of
+          case recCopyInto (Proxy :: Proxy lts) lts (Proxy :: Proxy sortedLts) arr# s'# of
             s''# ->
                 case writeSmallArray# arr# setAt# (unsafeCoerce# val) s''# of
                   s'''# ->
@@ -183,7 +184,7 @@ rcons (_ := val) lts =
                         (# s''''#, a# #) -> (# s''''#, Rec a# #)
     where
         !(I# setAt#) =
-            fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l (Sort (l := t ': lts)))))
+            fromIntegral (natVal' (proxy# :: Proxy# (RecVecIdxPos l sortedLts)))
         newSize# = size# +# 1#
         !(I# size#) = fromIntegral $ natVal' (proxy# :: Proxy# s)
 #else
@@ -258,17 +259,18 @@ unsafeRCons (lbl := val) (Rec obj) =
 
 -- | Alias for 'rcons'
 (&) ::
-    forall l t lts s.
+    forall l t lts s sortedLts.
     ( RecSize lts ~ s
+    , sortedLts ~ Sort (l := t ': lts)
     , KnownNat s
-    , KnownNat (RecVecIdxPos l (Sort (l := t ': lts)))
+    , KnownNat (RecVecIdxPos l sortedLts)
     , KeyDoesNotExist l lts
-    , RecCopy lts lts (Sort (l := t ': lts))
+    , RecCopy lts lts sortedLts
 #ifdef JS_RECORD
     , ToJSVal t
 #endif
     )
-    => l := t -> Rec lts -> Rec (Sort (l := t ': lts))
+    => l := t -> Rec lts -> Rec sortedLts
 (&) = rcons
 {-# INLINE (&) #-}
 
@@ -484,16 +486,17 @@ getPath = getPath'
 
 -- | Combine two records
 combine ::
-    forall lhs rhs.
+    forall lhs rhs sortRes.
     ( KnownNat (RecSize lhs)
     , KnownNat (RecSize rhs)
     , KnownNat (RecSize lhs + RecSize rhs)
-    , RecCopy lhs lhs (Sort (RecAppend lhs rhs))
-    , RecCopy rhs rhs (Sort (RecAppend lhs rhs))
+    , sortRes ~ Sort (RecAppend lhs rhs)
+    , RecCopy lhs lhs sortRes
+    , RecCopy rhs rhs sortRes
     )
     => Rec lhs
     -> Rec rhs
-    -> Rec (Sort (RecAppend lhs rhs))
+    -> Rec sortRes
 
 #ifndef JS_RECORD
 combine lts rts =
@@ -502,9 +505,9 @@ combine lts rts =
     in unsafePerformIO $! IO $ \s# ->
             case newSmallArray# size# (error "No value") s# of
               (# s'#, arr# #) ->
-                  case recCopyInto (Proxy :: Proxy lhs) lts (Proxy :: Proxy (Sort (RecAppend lhs rhs))) arr# s'# of
+                  case recCopyInto (Proxy :: Proxy lhs) lts (Proxy :: Proxy sortRes) arr# s'# of
                     s''# ->
-                        case recCopyInto (Proxy :: Proxy rhs) rts (Proxy :: Proxy (Sort (RecAppend lhs rhs))) arr# s''# of
+                        case recCopyInto (Proxy :: Proxy rhs) rts (Proxy :: Proxy sortRes) arr# s''# of
                           s'''# ->
                               case unsafeFreezeSmallArray# arr# s'''# of
                                 (# s''''#, a# #) -> (# s''''#, Rec a# #)
@@ -517,16 +520,17 @@ combine (Rec o1) (Rec o2) =
 
 -- | Alias for 'combine'
 (++:) ::
-    forall lhs rhs.
+    forall lhs rhs sortRes.
     ( KnownNat (RecSize lhs)
     , KnownNat (RecSize rhs)
     , KnownNat (RecSize lhs + RecSize rhs)
-    , RecCopy lhs lhs (Sort (RecAppend lhs rhs))
-    , RecCopy rhs rhs (Sort (RecAppend lhs rhs))
+    , sortRes ~ Sort (RecAppend lhs rhs)
+    , RecCopy lhs lhs sortRes
+    , RecCopy rhs rhs sortRes
     )
     => Rec lhs
     -> Rec rhs
-    -> Rec (Sort (RecAppend lhs rhs))
+    -> Rec sortRes
 (++:) = combine
 {-# INLINE (++:) #-}
 
