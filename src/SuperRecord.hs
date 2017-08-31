@@ -58,10 +58,12 @@ module SuperRecord
     , FldProxy(..), RecDeepTy
     , RecAll
     , KeyDoesNotExist
+    , Sort
     )
 where
 
 import SuperRecord.Field
+import SuperRecord.Sort
 
 import Control.DeepSeq
 import Control.Monad.Reader
@@ -83,6 +85,9 @@ import GHCJS.Marshal
 import qualified Data.JSString as JSS
 import qualified JavaScript.Object.Internal as JS
 #endif
+
+-- | Sort a list of fields using merge sort, alias to 'FieldListSort'
+type Sort xs = FieldListSort xs
 
 -- | The core record type. Prefer this type when manually writing type
 -- signatures
@@ -272,18 +277,6 @@ infixr 5 &
 type family RecAll (c :: u -> Constraint) (rs :: [u]) :: Constraint where
   RecAll c '[] = ()
   RecAll c (r ': rs) = (c r, RecAll c rs)
-
-type family Sort (lts :: [*]) where
-    Sort '[] = '[]
-    Sort (x := t ': xs) = SortInsert (x := t) (Sort xs)
-
-type family SortInsert (x :: *) (xs :: [*]) where
-    SortInsert x '[] = x ': '[]
-    SortInsert (x := t) ((y := u) ': ys) = SortInsert' (CmpSymbol x y) (x := t) (y := u) ys
-
-type family SortInsert' (b :: Ordering) (x :: *) (y :: *) (ys :: [*]) where
-    SortInsert' 'LT  x y ys = x ': (y ': ys)
-    SortInsert' _    x y ys = y ': SortInsert x ys
 
 type family KeyDoesNotExist (l :: Symbol) (lts :: [*]) :: Constraint where
     KeyDoesNotExist l '[] = 'True ~ 'True
