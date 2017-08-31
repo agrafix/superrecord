@@ -39,12 +39,12 @@ type family LengthOf (xs :: [k]) :: Nat where
     LengthOf '[] = 0
     LengthOf (x ': xs) = 1 + LengthOf xs
 
-type family ListTake (xs :: [*]) (n :: Nat) :: [*] where
+type family ListTake (xs :: [k]) (n :: Nat) :: [k] where
     ListTake '[] n = '[]
     ListTake xs 0 = '[]
     ListTake (x ': xs) n = (x ': ListTake xs (n - 1))
 
-type family ListDrop (xs :: [*]) (n :: Nat) :: [*] where
+type family ListDrop (xs :: [k]) (n :: Nat) :: [k] where
     ListDrop '[] n = '[]
     ListDrop xs 0 = xs
     ListDrop (x ': xs) n = ListDrop xs (n - 1)
@@ -76,6 +76,9 @@ type family FieldListSort (xs :: [*]) :: [*] where
         ListSortStep xs (HalfOf (LengthOf xs))
 
 -- Some type level tests. These will produce an "overlapping patterns" warning when failing
+
+_testDrop2 :: ( ListDrop '[1, 2, 3, 4] 2 ~ x, x ~ '[3, 4] ) => Proxy x
+_testDrop2 = Proxy
 
 _testLengthOf :: ( LengthOf '[1, 2, 3, 4] ~ x, x ~ 4 ) => Proxy x
 _testLengthOf = Proxy
@@ -112,6 +115,9 @@ _testHalfOf400 = Proxy
 
 _testHalfOf401 :: ( HalfOf 401 ~ x, x ~ 200 ) => Proxy x
 _testHalfOf401 = Proxy
+
+_testHalfOf793 :: ( HalfOf 793 ~ x, x ~ 396 ) => Proxy x
+_testHalfOf793 = Proxy
 
 _testSort0 ::
     ( FieldListSort '[] ~ x
