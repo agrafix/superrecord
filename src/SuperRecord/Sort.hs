@@ -35,12 +35,11 @@ type family IsLEq (o :: Ordering) :: Bool where
 type family SymbolLEq (s :: Symbol) (t :: Symbol) :: Bool where
     SymbolLEq s t = IsLEq (CmpSymbol s t)
 
-type family HalfOfHelper (n :: Nat) (i :: Nat) :: Nat where
-    HalfOfHelper n n = n
-    HalfOfHelper n m =
-        If (IsLT (CmpNat (m * 2) n))
-            (HalfOfHelper n (m + 1))
-            (If (IsGT (CmpNat (m * 2) n)) (m - 1) m)
+type family HalfOfHelper (n :: Nat) (i :: Nat) (dist :: Nat) (o :: Ordering) :: Nat where
+    HalfOfHelper n m dist 'GT = m - 1
+    HalfOfHelper n m dist 'EQ = m
+    HalfOfHelper n m 1 'LT = m
+    HalfOfHelper n m dist 'LT = HalfOfHelper n (m + 2) (n - ((m + 2) * 2)) (CmpNat ((m + 2) * 2) n)
 
 type family HalfOf (n :: Nat) :: Nat where
     -- some optimizations for faster compilation
@@ -56,7 +55,7 @@ type family HalfOf (n :: Nat) :: Nat where
     HalfOf 9 = 4
     HalfOf 10 = 5
     -- the general case
-    HalfOf n = HalfOfHelper n 0
+    HalfOf n = HalfOfHelper n 0 n 'LT -- usually (CmpNat 0 n), but 0 ist already handled!
 
 type family LengthOf (xs :: [k]) :: Nat where
     LengthOf '[] = 0
@@ -114,12 +113,23 @@ _testHalfOf3 = Proxy
 _testHalfOf4 :: ( HalfOf 4 ~ x, x ~ 2 ) => Proxy x
 _testHalfOf4 = Proxy
 
+_testHalfOf99 :: ( HalfOf 99 ~ x, x ~ 49 ) => Proxy x
+_testHalfOf99 = Proxy
+
 _testHalfOf100 :: ( HalfOf 100 ~ x, x ~ 50 ) => Proxy x
 _testHalfOf100 = Proxy
 
--- currently blows the stack
--- _testHalfOf200 :: ( HalfOf 200 ~ x, x ~ 100 ) => Proxy x
--- _testHalfOf200 = Proxy
+_testHalfOf101 :: ( HalfOf 101 ~ x, x ~ 50 ) => Proxy x
+_testHalfOf101 = Proxy
+
+_testHalfOf200 :: ( HalfOf 200 ~ x, x ~ 100 ) => Proxy x
+_testHalfOf200 = Proxy
+
+_testHalfOf400 :: ( HalfOf 400 ~ x, x ~ 200 ) => Proxy x
+_testHalfOf400 = Proxy
+
+_testHalfOf401 :: ( HalfOf 401 ~ x, x ~ 200 ) => Proxy x
+_testHalfOf401 = Proxy
 
 _testSort0 ::
     ( FieldListSort '[] ~ x
