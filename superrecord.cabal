@@ -20,6 +20,7 @@ flag GhcjsNativeRecord
 library
   hs-source-dirs:      src
   exposed-modules:     SuperRecord
+  other-modules:       SuperRecord.Field
   build-depends:       base >= 4.9 && < 5
                      , constraints
                      , aeson >= 1.0
