@@ -51,6 +51,7 @@ jobs:
           key: stack-cache-ghcjs
           paths:
             - ~/.stack
+            - ~/.ghcjs
             - ~/superrecord/.stack-work
       - run:
           name: stack build
