@@ -13,28 +13,6 @@ import SuperRecord.Field
 import Data.Proxy
 import GHC.TypeLits
 
-type family If (cond :: Bool) (ifTrue :: k) (ifFalse :: k) :: k where
-    If 'True x y = x
-    If 'False x y = y
-
-type family IsGT (o :: Ordering) :: Bool where
-    IsGT 'GT = 'True
-    IsGT 'LT = 'False
-    IsGT 'EQ = 'False
-
-type family IsLT (o :: Ordering) :: Bool where
-    IsLT 'GT = 'False
-    IsLT 'LT = 'True
-    IsLT 'EQ = 'False
-
-type family IsLEq (o :: Ordering) :: Bool where
-    IsLEq 'GT = 'False
-    IsLEq 'LT = 'True
-    IsLEq 'EQ = 'True
-
-type family SymbolLEq (s :: Symbol) (t :: Symbol) :: Bool where
-    SymbolLEq s t = IsLEq (CmpSymbol s t)
-
 type family HalfOfHelper (n :: Nat) (i :: Nat) (dist :: Nat) (o :: Ordering) :: Nat where
     HalfOfHelper n m dist 'GT = m - 1
     HalfOfHelper n m dist 'EQ = m
@@ -71,13 +49,17 @@ type family ListDrop (xs :: [*]) (n :: Nat) :: [*] where
     ListDrop xs 0 = xs
     ListDrop (x ': xs) n = ListDrop xs (n - 1)
 
+type family FieldListMergeHelper (xs :: [*]) (ys :: [*]) (o :: Ordering) :: [*] where
+    FieldListMergeHelper (x := xv ': xs) (y := yv ': ys) 'GT =
+        (y := yv) ': FieldListMerge (x := xv ': xs) ys
+    FieldListMergeHelper (x := xv ': xs) (y := yv ': ys) leq =
+        (x := xv) ': FieldListMerge xs (y := yv ': ys)
+
 type family FieldListMerge (xs :: [*]) (ys :: [*]) :: [*] where
     FieldListMerge xs '[] = xs
     FieldListMerge '[] ys = ys
     FieldListMerge (x := xv ': xs) (y := yv ': ys) =
-        If (SymbolLEq x y)
-            ((x := xv) ': FieldListMerge xs (y := yv ': ys))
-            ((y := yv) ': FieldListMerge (x := xv ': xs) ys)
+        FieldListMergeHelper (x := xv ': xs) (y := yv ': ys) (CmpSymbol x y)
 
 type family ListSortStep (xs :: [*]) (halfLen :: Nat) :: [*] where
     ListSortStep xs halfLen =
