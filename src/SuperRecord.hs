@@ -594,7 +594,7 @@ showRec :: forall lts. (RecApply lts lts Show) => Rec lts -> [(String, String)]
 showRec = reflectRec @Show Proxy (\k v -> (k, show v))
 
 recToValue :: forall lts. (RecApply lts lts ToJSON) => Rec lts -> Value
-recToValue r = toJSON $ reflectRec @ToJSON Proxy (\k v -> (T.pack k, toJSON v)) r
+recToValue r = object $ reflectRec @ToJSON Proxy (\k v -> (T.pack k, toJSON v)) r
 
 recToEncoding :: forall lts. (RecApply lts lts ToJSON) => Rec lts -> Encoding
 recToEncoding r = pairs $ mconcat $ reflectRec @ToJSON Proxy (\k v -> (T.pack k .= v)) r
