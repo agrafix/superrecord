@@ -13,6 +13,7 @@ import SuperRecord
 
 import Control.Monad.Reader
 import Data.Aeson
+import Data.Aeson.Encoding
 import GHC.Generics (Generic)
 import Test.Hspec
 
@@ -159,5 +160,13 @@ main = hspec $
               decode (encode r2) `shouldBe` Just r2
               decode (encode rNested) `shouldBe` Just rNested
               decode "{\"foo\": true}" `shouldBe` Just (#foo := True & rnil)
+       let r1JSON = object ["foo" .= ("Hi" :: String), "int" .= (213 :: Int)]
+       it "toJSON produces an object" $
+           toJSON r1 `shouldBe` r1JSON
+       it "toEncoding produces an object" $
+           decode (encodingToLazyByteString (toEncoding r1)) `shouldBe`
+               Just r1JSON
+       it "parseJSON parses an object" $
+           decode "{\"foo\": \"Hi\", \"int\": 213}" `shouldBe` Just r1
        it "reader works" $
            do runReaderT mtlAsk (#id := 123 & rnil) `shouldReturn` 123
