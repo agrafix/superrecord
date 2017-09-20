@@ -10,7 +10,9 @@ maintainer:          mail@athiemann.net
 copyright:           2017 Alexander Thiemann <mail@athiemann.net>
 category:            Web
 build-type:          Simple
-extra-source-files:  README.md
+extra-source-files:
+  README.md
+  CHANGELOG.md
 cabal-version:       >=1.10
 
 flag GhcjsNativeRecord
