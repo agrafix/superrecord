@@ -83,7 +83,7 @@ import GHCJS.Marshal
 import qualified Data.JSString as JSS
 import qualified JavaScript.Object.Internal as JS
 import System.IO.Unsafe (unsafePerformIO)
-#endif
+#else
 import GHC.ST ( ST(..) , runST)
 #endif
 
