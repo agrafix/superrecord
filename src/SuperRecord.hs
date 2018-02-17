@@ -73,7 +73,6 @@ import Data.Constraint
 import Data.Proxy
 import GHC.Base (Int(..), Any)
 import GHC.Generics
-import GHC.ST ( ST(..) , runST)
 import GHC.Prim
 import GHC.TypeLits
 import qualified Control.Monad.State as S
@@ -83,6 +82,10 @@ import qualified Data.Text as T
 import GHCJS.Marshal
 import qualified Data.JSString as JSS
 import qualified JavaScript.Object.Internal as JS
+import GHC.IO ( IO (..) )
+import System.IO.Unsafe (unsafePerformIO)
+#endif
+import GHC.ST ( ST(..) , runST)
 #endif
 
 -- | Sort a list of fields using merge sort, alias to 'FieldListSort'
