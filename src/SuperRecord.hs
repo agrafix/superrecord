@@ -73,10 +73,9 @@ import Data.Constraint
 import Data.Proxy
 import GHC.Base (Int(..), Any)
 import GHC.Generics
-import GHC.IO ( IO(..) )
+import GHC.ST ( ST(..) , runST)
 import GHC.Prim
 import GHC.TypeLits
-import System.IO.Unsafe (unsafePerformIO)
 import qualified Control.Monad.State as S
 import qualified Data.Text as T
 
@@ -136,6 +135,10 @@ instance (RecSize lts ~ s, KnownNat s, RecJsonParse lts) => FromJSON (Rec lts) w
 instance RecNfData lts lts => NFData (Rec lts) where
     rnf = recNfData (Proxy :: Proxy lts)
 
+-- Hack needed because $! doesn't have the same special treatment $ does to work with ST yet
+runST' :: (forall s. ST s a) -> a
+runST' !s = runST s
+
 -- | An empty record
 rnil :: Rec '[]
 rnil = unsafeRnil 0
@@ -145,7 +148,7 @@ rnil = unsafeRnil 0
 unsafeRnil :: Int -> Rec '[]
 #ifndef JS_RECORD
 unsafeRnil (I# n#) =
-    unsafePerformIO $! IO $ \s# ->
+    runST' $ ST $ \s# ->
     case newSmallArray# n# (error "No Value") s# of
       (# s'#, arr# #) ->
           case unsafeFreezeSmallArray# arr# s'# of
@@ -173,7 +176,7 @@ rcons ::
 
 #ifndef JS_RECORD
 rcons (_ := val) lts =
-    unsafePerformIO $! IO $ \s# ->
+    runST' $ ST $ \s# ->
     case newSmallArray# newSize# (error "No value") s# of
       (# s'#, arr# #) ->
           case recCopyInto (Proxy :: Proxy lts) lts (Proxy :: Proxy sortedLts) arr# s'# of
@@ -200,9 +203,9 @@ rcons (lbl := val) (Rec obj) =
 class RecCopy (pts :: [*]) (lts :: [*]) (rts :: [*]) where
     recCopyInto ::
         Proxy pts -> Rec lts -> Proxy rts
-        -> SmallMutableArray# RealWorld Any
-        -> State# RealWorld
-        -> State# RealWorld
+        -> SmallMutableArray# s Any
+        -> State# s
+        -> State# s
 
 instance RecCopy '[] lts rts where
     recCopyInto _ _ _ _ s# = s#
@@ -239,7 +242,7 @@ unsafeRCons ::
 
 #ifndef JS_RECORD
 unsafeRCons (_ := val) (Rec vec#) =
-    unsafePerformIO $! IO $ \s# ->
+    runST' $ ST $ \s# ->
     case unsafeThawSmallArray# vec# s# of
       (# s'#, arr# #) ->
           case writeSmallArray# arr# size# (unsafeCoerce# val) s'# of
@@ -378,7 +381,7 @@ set _ !val (Rec vec#) =
         dynVal :: Any
         !dynVal = unsafeCoerce# val
         r2 =
-            unsafePerformIO $! IO $ \s# ->
+            runST' $ ST $ \s# ->
             case newSmallArray# size# (error "No value") s# of
               (# s'#, arr# #) ->
                   case copySmallArray# vec# 0# arr# 0# size# s'# of
@@ -502,7 +505,7 @@ combine ::
 combine lts rts =
     let !(I# size#) =
             fromIntegral $ natVal' (proxy# :: Proxy# (RecSize lhs + RecSize rhs))
-    in unsafePerformIO $! IO $ \s# ->
+    in runST' $ ST $ \s# ->
             case newSmallArray# size# (error "No value") s# of
               (# s'#, arr# #) ->
                   case recCopyInto (Proxy :: Proxy lhs) lts (Proxy :: Proxy sortRes) arr# s'# of
@@ -672,8 +675,8 @@ instance
     recJsonParse initSize obj =
         do let lbl :: FldProxy l
                lbl = FldProxy
-           (v :: t) <- obj .: T.pack (symbolVal lbl)
            rest <- recJsonParse initSize obj
+           (v :: t) <- obj .: T.pack (symbolVal lbl)
            pure $ unsafeRCons (lbl := v) rest
 
 -- | Machinery for NFData
