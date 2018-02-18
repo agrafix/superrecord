@@ -138,8 +138,10 @@ instance RecNfData lts lts => NFData (Rec lts) where
     rnf = recNfData (Proxy :: Proxy lts)
 
 -- Hack needed because $! doesn't have the same special treatment $ does to work with ST yet
+#ifndef JS_RECORD
 runST' :: (forall s. ST s a) -> a
 runST' !s = runST s
+#endif
 
 -- | An empty record
 rnil :: Rec '[]
