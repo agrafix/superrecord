@@ -10,6 +10,7 @@
 module Main where
 
 import SuperRecord
+import SuperRecord.Variant
 
 import Control.Monad.Reader
 import Data.Aeson
@@ -84,7 +85,45 @@ bigRec =
   & rnil
 
 main :: TestRecAppend => IO ()
-main = hspec $
+main =
+    hspec $
+    do recordTests
+       variantTests
+
+variantTests :: SpecWith ()
+variantTests =
+    describe "Variants" $
+    do it "works with single element variant" $
+           let v :: Variant '[Bool]
+               v = toVariant True
+           in fromVariant v `shouldBe` Just True
+       it "works with multi element variant" $
+           let v :: Variant '[Bool, Int]
+               v = toVariant (32 :: Int)
+           in fromVariant v `shouldBe` Just (32 :: Int)
+       it "works with pattern matching" $
+           let r :: Variant '[Bool, Int, ()] -> String
+               r v =
+                   variantMatch v $
+                   VariantCase (\x -> if x then "ok" else "no") $
+                   VariantCase (\i -> if i > 10 then "oki" else "noi") $
+                   VariantCase (\() -> "()")
+                   VariantEnd
+           in do r (toVariant ()) `shouldBe` "()"
+                 r (toVariant (23 :: Int)) `shouldBe` "oki"
+                 r (toVariant False) `shouldBe` "no"
+       it "works with wildcard pattern matching" $
+           let r :: Variant '[Bool, Int, ()] -> String
+               r v =
+                   variantMatch v $
+                   VariantCase (\x -> if x then "ok" else "no") $
+                   VariantWildCard "wild"
+           in do r (toVariant ()) `shouldBe` "wild"
+                 r (toVariant (23 :: Int)) `shouldBe` "wild"
+                 r (toVariant False) `shouldBe` "no"
+recordTests :: SpecWith ()
+recordTests =
+    describe "Records" $
     do it "getter works" $
            do get #foo r1 `shouldBe` "Hi"
               get #int r1 `shouldBe` 213

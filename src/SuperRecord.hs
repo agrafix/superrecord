@@ -1,3 +1,4 @@
+{-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE PolyKinds #-}
@@ -80,9 +81,9 @@ import qualified Data.Text as T
 
 #ifdef JS_RECORD
 import GHCJS.Marshal
+import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.JSString as JSS
 import qualified JavaScript.Object.Internal as JS
-import System.IO.Unsafe (unsafePerformIO)
 #else
 import GHC.ST ( ST(..) , runST)
 #endif
@@ -106,6 +107,8 @@ data Rec (lts :: [*])
        _unRec :: !JS.Object
 #endif
    }
+
+type role Rec representational
 
 #ifdef JS_RECORD
 copyObject :: JS.Object -> IO JS.Object
