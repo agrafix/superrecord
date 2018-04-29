@@ -19,6 +19,7 @@ where
 import SuperRecord.Field
 
 import Control.Applicative
+import Control.DeepSeq
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.ByteString.Internal (c2w)
@@ -33,6 +34,15 @@ data TaggedVariant (opts :: [*])
     = TaggedVariant {-# UNPACK #-} !BSS.ShortByteString Any
 
 type role TaggedVariant representational
+
+instance NFData (TaggedVariant '[]) where
+    rnf (TaggedVariant x _) = x `deepseq` ()
+
+instance (KnownSymbol lbl, NFData t, NFData (TaggedVariant ts)) => NFData (TaggedVariant (lbl := t ': ts)) where
+    rnf v1 =
+        let w1 :: Maybe t
+            w1 = fromTaggedVariant (FldProxy :: FldProxy lbl) v1
+        in w1 `deepseq` shrinkTaggedVariant v1 `deepseq` ()
 
 instance ToJSON (TaggedVariant '[]) where
     toJSON _ = toJSON ()

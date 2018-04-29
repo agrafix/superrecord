@@ -8,6 +8,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module SuperRecord.TextVariant
     ( TextVariant
     , TextVariantMember
@@ -19,13 +20,14 @@ where
 
 import SuperRecord.Field
 
+import Control.DeepSeq
 import Data.Aeson
 import GHC.TypeLits
 import qualified Data.Text as T
 
 newtype TextVariant (opts :: [Symbol])
     = TextVariant T.Text
-    deriving (Show, Eq, Ord)
+    deriving (Show, Eq, Ord, NFData)
 
 instance ToJSON (TextVariant opts) where
     toJSON = toJSON . fromTextVariant

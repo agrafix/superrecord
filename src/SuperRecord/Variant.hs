@@ -17,6 +17,7 @@ module SuperRecord.Variant
 where
 
 import Control.Applicative
+import Control.DeepSeq
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Maybe
@@ -29,6 +30,15 @@ data Variant (opts :: [*])
     = Variant {-# UNPACK #-} !Word Any
 
 type role Variant representational
+
+instance NFData (Variant '[]) where
+    rnf (Variant x _) = x `deepseq` ()
+
+instance (NFData t, NFData (Variant ts)) => NFData (Variant (t ': ts)) where
+    rnf v1 =
+        let w1 :: Maybe t
+            w1 = fromVariant v1
+        in w1 `deepseq` shrinkVariant v1 `deepseq` ()
 
 instance ToJSON (Variant '[]) where
     toJSON _ = toJSON ()
