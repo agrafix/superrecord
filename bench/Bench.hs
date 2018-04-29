@@ -204,17 +204,20 @@ main =
     , bgroup "text-variant" textVariantBench
     ]
 
+textVariantBench :: [Benchmark]
 textVariantBench =
     [ bench "native" $ nf nativeTextSumTypeFun nativeTextSumType
     , bench "text" $ nf variantTextSumTypeFun variantTextSumType
     ]
 
+variantBench :: [Benchmark]
 variantBench =
     [ bench "native" $ nf nativeSumTypeFun nativeSumType
     , bench "tagged" $ nf taggedSumTypeFun taggedSumType
     , bench "variant" $ nf variantSumTypeFun variantSumType
     ]
 
+recordBench :: [Benchmark]
 recordBench =
     [ bgroup "get"
         [ bench "superrecord" $ nf (get #f2) r1
