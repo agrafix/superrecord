@@ -11,7 +11,7 @@
 module SuperRecord.TaggedVariant
     ( TaggedVariant
     , TaggedVariantMember
-    , emptyTaggedVariant, toTaggedVariant, fromTaggedVariant
+    , emptyTaggedVariant, toTaggedVariant, toTaggedVariant', fromTaggedVariant
     , TaggedVariantMatch(..), TaggedVariantMatcher(..)
     )
 where
@@ -67,10 +67,17 @@ type family TaggedVariantMember lbl t opts where
 
 toTaggedVariant ::
     forall opts lbl a.
-    TaggedVariantMember lbl a opts
-    => lbl := a -> TaggedVariant opts
-toTaggedVariant (proxy := value) =
+    (KnownSymbol lbl, TaggedVariantMember lbl a opts)
+    => FldProxy lbl -> a -> TaggedVariant opts
+toTaggedVariant proxy value =
     TaggedVariant (T.pack $ symbolVal proxy) (unsafeCoerce value)
+
+toTaggedVariant' ::
+    forall opts lbl a.
+    (TaggedVariantMember lbl a opts)
+    => lbl := a -> TaggedVariant opts
+toTaggedVariant' (proxy := value) =
+    toTaggedVariant proxy value
 
 emptyTaggedVariant :: TaggedVariant '[]
 emptyTaggedVariant = TaggedVariant T.empty undefined

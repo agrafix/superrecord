@@ -139,11 +139,11 @@ taggedVariantTests =
     describe "TaggedVariants" $
     do it "works with single element variant" $
            let v :: TaggedVariant '["foo" := Bool]
-               v = toTaggedVariant $ #foo := True
+               v = toTaggedVariant #foo True
            in fromTaggedVariant #foo v `shouldBe` Just True
        it "works with multi element variant" $
            let v :: TaggedVariant '["foo" := Bool, "bar" := Int]
-               v = toTaggedVariant $ #bar := (32 :: Int)
+               v = toTaggedVariant #bar (32 :: Int)
            in fromTaggedVariant #bar v `shouldBe` Just (32 :: Int)
        it "works with pattern matching" $
            let r :: TaggedVariant '["foo" := Bool, "bar" := Int, "baz" := ()] -> String
@@ -153,26 +153,26 @@ taggedVariantTests =
                    TaggedVariantCase #bar (\i -> if i > 10 then "oki" else "noi") $
                    TaggedVariantCase #baz (\() -> "()")
                    TaggedVariantEnd
-           in do r (toTaggedVariant $ #baz := ()) `shouldBe` "()"
-                 r (toTaggedVariant $ #bar := (23 :: Int)) `shouldBe` "oki"
-                 r (toTaggedVariant $ #foo := False) `shouldBe` "no"
+           in do r (toTaggedVariant #baz ()) `shouldBe` "()"
+                 r (toTaggedVariant #bar (23 :: Int)) `shouldBe` "oki"
+                 r (toTaggedVariant #foo False) `shouldBe` "no"
        it "works with wildcard pattern matching" $
            let r :: TaggedVariant '["foo" := Bool, "bar" := Int, "baz" := ()] -> String
                r v =
                    taggedVariantMatch v $
                    TaggedVariantCase #foo (\x -> if x then "ok" else "no") $
                    TaggedVariantWildCard "wild"
-           in do r (toTaggedVariant $ #baz := ()) `shouldBe` "wild"
-                 r (toTaggedVariant $ #bar := (23 :: Int)) `shouldBe` "wild"
-                 r (toTaggedVariant $ #foo := False) `shouldBe` "no"
+           in do r (toTaggedVariant #baz ()) `shouldBe` "wild"
+                 r (toTaggedVariant #bar (23 :: Int)) `shouldBe` "wild"
+                 r (toTaggedVariant #foo False) `shouldBe` "no"
        it "has correct equality" $
            let mkVal :: Int -> TaggedVariant '["foo" := Bool, "bar" := Int]
-               mkVal i = toTaggedVariant $ #bar := i
+               mkVal = toTaggedVariant #bar
            in do mkVal 2 == mkVal 5 `shouldBe` False
                  mkVal 2 == mkVal 2 `shouldBe` True
        it "has correct ord" $
            let mkVal :: Int -> TaggedVariant '["foo" := Bool, "bar" := Int]
-               mkVal i = toTaggedVariant $ #bar := i
+               mkVal = toTaggedVariant #bar
            in do mkVal 2 > mkVal 5 `shouldBe` False
                  mkVal 2 < mkVal 5 `shouldBe` True
 
