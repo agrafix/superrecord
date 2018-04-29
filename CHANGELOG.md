@@ -1,3 +1,7 @@
+# 0.5.0.0
+
+* Added variant types
+
 # 0.4.0.0
 
 * Added `RecAll`. [#4]
