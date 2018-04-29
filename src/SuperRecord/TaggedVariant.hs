@@ -6,166 +6,95 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module SuperRecord.TaggedVariant
-    ( TaggedVariant
-    , TaggedVariantMember
-    , emptyTaggedVariant, toTaggedVariant, toTaggedVariant', fromTaggedVariant
-    , TaggedVariantMatch(..), TaggedVariantMatcher(..)
+    ( TaggedVariant, toTaggedVariant, fromTaggedVariant
+    , taggedVariantCase
+    , JsonTaggedVariant(..)
     )
 where
 
 import SuperRecord.Field
+import SuperRecord.Variant
 
 import Control.Applicative
-import Control.DeepSeq
 import Data.Aeson
 import Data.Aeson.Types (Parser)
-import Data.ByteString.Internal (c2w)
 import Data.Maybe
-import GHC.Base (Any)
 import GHC.TypeLits
-import Unsafe.Coerce
-import qualified Data.ByteString.Short as BSS
 import qualified Data.Text as T
 
-data TaggedVariant (opts :: [*])
-    = TaggedVariant {-# UNPACK #-} !BSS.ShortByteString Any
+type TaggedVariant opts = Variant opts
 
-type role TaggedVariant representational
+newtype JsonTaggedVariant opts
+    = JsonTaggedVariant { unJsonTaggedVariant :: TaggedVariant opts }
 
-instance NFData (TaggedVariant '[]) where
-    rnf (TaggedVariant x _) = x `deepseq` ()
 
-instance (KnownSymbol lbl, NFData t, NFData (TaggedVariant ts)) => NFData (TaggedVariant (lbl := t ': ts)) where
-    rnf v1 =
-        let w1 :: Maybe t
-            w1 = fromTaggedVariant (FldProxy :: FldProxy lbl) v1
-        in w1 `deepseq` shrinkTaggedVariant v1 `deepseq` ()
-
-instance ToJSON (TaggedVariant '[]) where
+instance ToJSON (JsonTaggedVariant '[]) where
     toJSON _ = toJSON ()
 
-instance (KnownSymbol lbl, ToJSON t, ToJSON (TaggedVariant ts)) => ToJSON (TaggedVariant (lbl := t ': ts)) where
-    toJSON v1 =
+instance (KnownSymbol lbl, ToJSON t, ToJSON (JsonTaggedVariant ts)) => ToJSON (JsonTaggedVariant (lbl := t ': ts)) where
+    toJSON (JsonTaggedVariant v1) =
         let w1 :: Maybe t
             w1 = fromTaggedVariant (FldProxy :: FldProxy lbl) v1
             tag = T.pack $ symbolVal (FldProxy :: FldProxy lbl)
         in let val =
-                   fromMaybe (toJSON $ shrinkTaggedVariant v1) $
+                   fromMaybe (toJSON $ JsonTaggedVariant $ shrinkVariant v1) $
                    (\x -> object [tag .= x]) <$> w1
            in val
 
-instance FromJSON (TaggedVariant '[]) where
+instance FromJSON (JsonTaggedVariant '[]) where
     parseJSON r =
         do () <- parseJSON r
-           pure emptyTaggedVariant
+           pure $ JsonTaggedVariant emptyVariant
 
-instance ( FromJSON t, FromJSON (TaggedVariant ts)
+instance ( FromJSON t, FromJSON (JsonTaggedVariant ts)
          , KnownSymbol lbl
-         ) => FromJSON (TaggedVariant (lbl := t ': ts)) where
+         ) => FromJSON (JsonTaggedVariant (lbl := t ': ts)) where
     parseJSON r =
         do let tag = T.pack $ symbolVal (FldProxy :: FldProxy lbl)
                myParser :: Parser t
                myParser = withObject ("Tagged " ++ show tag) (\o -> o .: tag) r
-               myPackedParser :: Parser (TaggedVariant (lbl := t ': ts))
-               myPackedParser = toTaggedVariant (FldProxy :: FldProxy lbl) <$> myParser
-               nextPackedParser :: Parser (TaggedVariant ts)
+               myPackedParser :: Parser (JsonTaggedVariant (lbl := t ': ts))
+               myPackedParser =
+                   JsonTaggedVariant . toTaggedVariant (FldProxy :: FldProxy lbl) <$>
+                   myParser
+
+               nextPackedParser :: Parser (JsonTaggedVariant ts)
                nextPackedParser = parseJSON r
-               lift (TaggedVariant t v) = (TaggedVariant t v)
-               myNextPackedParser :: Parser (TaggedVariant (lbl := t ': ts))
-               myNextPackedParser = lift <$> nextPackedParser
+               myNextPackedParser :: Parser (JsonTaggedVariant (lbl := t ': ts))
+               myNextPackedParser =
+                   JsonTaggedVariant . extendVariant . unJsonTaggedVariant <$> nextPackedParser
            myPackedParser <|> myNextPackedParser
 
-instance Show (TaggedVariant '[]) where
-    show _ = "<EmptyTaggedVariant>"
-
-instance (KnownSymbol lbl, Show t, Show (TaggedVariant ts)) => Show (TaggedVariant (lbl := t ': ts)) where
-    show v1 =
-        let w1 :: Maybe t
-            w1 = fromTaggedVariant (FldProxy :: FldProxy lbl) v1
-        in fromMaybe (show $ shrinkTaggedVariant v1) $ show <$> w1
-
-instance Eq (TaggedVariant '[]) where
-    _ == _ = True
-
-instance (KnownSymbol lbl, Eq t, Eq (TaggedVariant ts)) => Eq (TaggedVariant (lbl := t ': ts)) where
-    v1 == v2 =
-        let w1 :: Maybe t
-            w1 = fromTaggedVariant (FldProxy :: FldProxy lbl) v1
-            w2 :: Maybe t
-            w2 = fromTaggedVariant (FldProxy :: FldProxy lbl) v2
-        in fromMaybe (shrinkTaggedVariant v1 == shrinkTaggedVariant v2) $ (==) <$> w1 <*> w2
-
-instance Ord (TaggedVariant '[]) where
-    compare _ _ = EQ
-
-instance (KnownSymbol lbl, Ord t, Ord (TaggedVariant ts)) => Ord (TaggedVariant (lbl := t ': ts)) where
-    compare v1 v2 =
-        let w1 :: Maybe t
-            w1 = fromTaggedVariant (FldProxy :: FldProxy lbl) v1
-            w2 :: Maybe t
-            w2 = fromTaggedVariant (FldProxy :: FldProxy lbl) v2
-        in fromMaybe (shrinkTaggedVariant v1 `compare` shrinkTaggedVariant v2) $
-           compare <$> w1 <*> w2
-
-type family TaggedVariantMember lbl t opts where
-    TaggedVariantMember lbl t (lbl := t ': xs) = 'True ~ 'True
-    TaggedVariantMember lbl t (lbl1 := t1 ': ys) = TaggedVariantMember lbl t ys
-
 toTaggedVariant ::
-    forall opts lbl a.
-    (KnownSymbol lbl, TaggedVariantMember lbl a opts)
+    forall opts lbl a pos.
+    ( KnownSymbol lbl, VariantMember (lbl := a) opts
+    , KnownNat pos, VariantPos (lbl := a) opts ~ pos
+    )
     => FldProxy lbl -> a -> TaggedVariant opts
-toTaggedVariant proxy value =
-    TaggedVariant (BSS.pack $ map c2w $ symbolVal proxy) (unsafeCoerce value)
-
-toTaggedVariant' ::
-    forall opts lbl a.
-    (TaggedVariantMember lbl a opts)
-    => lbl := a -> TaggedVariant opts
-toTaggedVariant' (proxy := value) =
-    toTaggedVariant proxy value
-
-emptyTaggedVariant :: TaggedVariant '[]
-emptyTaggedVariant = TaggedVariant BSS.empty undefined
+toTaggedVariant proxy value = toVariant (proxy := value)
 
 fromTaggedVariant ::
-    forall opts lbl a.
-    (KnownSymbol lbl, TaggedVariantMember lbl a opts)
+    forall opts lbl a pos.
+    ( KnownSymbol lbl, VariantMember (lbl := a) opts
+    , KnownNat pos, VariantPos (lbl := a) opts ~ pos
+    )
     => FldProxy lbl -> TaggedVariant opts -> Maybe a
-fromTaggedVariant proxy (TaggedVariant tag value) =
-    if tag == BSS.pack (map c2w (symbolVal proxy))
-       then Just (unsafeCoerce value)
-       else Nothing
+fromTaggedVariant _ variant =
+    let loader :: Maybe (lbl := a)
+        loader = fromVariant variant
+    in case loader of
+         Just (_ := r) -> Just r
+         Nothing -> Nothing
 
-data TaggedVariantMatch r ts where
-    TaggedVariantCase ::
-        FldProxy lbl -> (t -> r) -> TaggedVariantMatch r ts
-        -> TaggedVariantMatch r (lbl := t ':  ts)
-    TaggedVariantEnd :: TaggedVariantMatch r '[]
-    TaggedVariantWildCard :: r -> TaggedVariantMatch r ts
-
-shrinkTaggedVariant :: TaggedVariant (t ': ts) -> TaggedVariant ts
-shrinkTaggedVariant (TaggedVariant tag value) = TaggedVariant tag value
-
-class TaggedVariantMatcher r opts where
-   taggedVariantMatch :: TaggedVariant opts -> TaggedVariantMatch r opts -> r
-
-instance (KnownSymbol lbl, TaggedVariantMatcher r ts) => TaggedVariantMatcher r (lbl := t ': ts) where
-   taggedVariantMatch v match =
-     case match of
-       TaggedVariantCase proxy@(FldProxy :: FldProxy lbl) (f :: t -> r) continue ->
-          let mValue :: Maybe t
-              mValue = fromTaggedVariant proxy v
-          in case mValue of
-               Just val -> f val
-               Nothing -> taggedVariantMatch (shrinkTaggedVariant v) continue
-       TaggedVariantWildCard r -> r
-
-instance TaggedVariantMatcher r '[] where
-   taggedVariantMatch _ match =
-     case match of
-       TaggedVariantWildCard r -> r
-       TaggedVariantEnd -> error "This should never happen"
+-- VariantCase :: (t -> r) -> VariantMatch r ts -> VariantMatch r (t ':  ts)
+taggedVariantCase ::
+    forall lbl t ts r.
+    FldProxy lbl -> (t -> r) -> VariantMatch r ts
+    -> VariantMatch r ((lbl := t) ': ts)
+taggedVariantCase _ go match =
+    let f :: (lbl := t) -> r
+        f (_ := x) = go x
+    in VariantCase f match
+{-# INLINE taggedVariantCase #-}

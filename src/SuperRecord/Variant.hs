@@ -13,6 +13,7 @@ module SuperRecord.Variant
     , VariantMember, VariantPos
     , emptyVariant, toVariant, fromVariant
     , VariantMatch(..), VariantMatcher(..)
+    , shrinkVariant, extendVariant
     )
 where
 
@@ -63,9 +64,8 @@ instance ( FromJSON t, FromJSON (Variant ts)
                myPackedParser = toVariant <$> myParser
                nextPackedParser :: Parser (Variant ts)
                nextPackedParser = parseJSON r
-               lift (Variant t v) = (Variant (t + 1) v)
                myNextPackedParser :: Parser (Variant (t ': ts))
-               myNextPackedParser = lift <$> nextPackedParser
+               myNextPackedParser = extendVariant <$> nextPackedParser
            myPackedParser <|> myNextPackedParser
 
 instance Show (Variant '[]) where
@@ -138,6 +138,9 @@ data VariantMatch r ts where
 
 shrinkVariant :: Variant (t ': ts) -> Variant ts
 shrinkVariant (Variant tag value) = Variant (tag - 1) value
+
+extendVariant :: Variant ts -> Variant (t ': ts)
+extendVariant (Variant tag value) = Variant (tag + 1) value
 
 class VariantMatcher r opts where
    variantMatch :: Variant opts -> VariantMatch r opts -> r

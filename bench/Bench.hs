@@ -153,11 +153,11 @@ taggedSumType = toTaggedVariant #sstr ("fooo" :: String)
 
 taggedSumTypeFun :: TaggedSumType -> Int
 taggedSumTypeFun st =
-    taggedVariantMatch st $
-    TaggedVariantCase #sbool (\x -> if x then 1 else 0) $
-    TaggedVariantCase #sint (\i -> i) $
-    TaggedVariantCase #sstr (\s -> length s) $
-    TaggedVariantEnd
+    variantMatch st $
+    taggedVariantCase #sbool (\x -> if x then 1 else 0) $
+    taggedVariantCase #sint (\i -> i) $
+    taggedVariantCase #sstr (\s -> length s) $
+    VariantEnd
 
 type VariantSumType = Variant '[Bool, Int, String]
 

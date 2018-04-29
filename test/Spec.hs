@@ -153,52 +153,52 @@ taggedVariantTests :: SpecWith ()
 taggedVariantTests =
     describe "TaggedVariants" $
     do it "works with single element variant" $
-           let v :: TaggedVariant '["foo" := Bool]
+           let v :: Variant '["foo" := Bool]
                v = toTaggedVariant #foo True
            in fromTaggedVariant #foo v `shouldBe` Just True
        it "works with multi element variant" $
-           let v :: TaggedVariant '["foo" := Bool, "bar" := Int]
+           let v :: Variant '["foo" := Bool, "bar" := Int]
                v = toTaggedVariant #bar (32 :: Int)
            in fromTaggedVariant #bar v `shouldBe` Just (32 :: Int)
        it "works with pattern matching" $
-           let r :: TaggedVariant '["foo" := Bool, "bar" := Int, "baz" := ()] -> String
+           let r :: Variant '["foo" := Bool, "bar" := Int, "baz" := ()] -> String
                r v =
-                   taggedVariantMatch v $
-                   TaggedVariantCase #foo (\x -> if x then "ok" else "no") $
-                   TaggedVariantCase #bar (\i -> if i > 10 then "oki" else "noi") $
-                   TaggedVariantCase #baz (\() -> "()")
-                   TaggedVariantEnd
+                   variantMatch v $
+                   taggedVariantCase #foo (\x -> if x then "ok" else "no") $
+                   taggedVariantCase #bar (\i -> if i > 10 then "oki" else "noi") $
+                   taggedVariantCase #baz (\() -> "()")
+                   VariantEnd
            in do r (toTaggedVariant #baz ()) `shouldBe` "()"
                  r (toTaggedVariant #bar (23 :: Int)) `shouldBe` "oki"
                  r (toTaggedVariant #foo False) `shouldBe` "no"
        it "works with wildcard pattern matching" $
-           let r :: TaggedVariant '["foo" := Bool, "bar" := Int, "baz" := ()] -> String
+           let r :: Variant '["foo" := Bool, "bar" := Int, "baz" := ()] -> String
                r v =
-                   taggedVariantMatch v $
-                   TaggedVariantCase #foo (\x -> if x then "ok" else "no") $
-                   TaggedVariantWildCard "wild"
+                   variantMatch v $
+                   taggedVariantCase #foo (\x -> if x then "ok" else "no") $
+                   VariantWildCard "wild"
            in do r (toTaggedVariant #baz ()) `shouldBe` "wild"
                  r (toTaggedVariant #bar (23 :: Int)) `shouldBe` "wild"
                  r (toTaggedVariant #foo False) `shouldBe` "no"
        it "serialises to JSON" $
-           do encode ((toTaggedVariant #int (123 :: Int)) :: TaggedVariant '["bool" := Bool, "int" := Int])
+           do encode (JsonTaggedVariant (toTaggedVariant #int (123 :: Int)) :: JsonTaggedVariant '["bool" := Bool, "int" := Int])
                   `shouldBe` "{\"int\":123}"
-              encode ((toTaggedVariant #bool True) :: TaggedVariant '["bool" := Bool, "int" := Int])
+              encode (JsonTaggedVariant (toTaggedVariant #bool True) :: JsonTaggedVariant '["bool" := Bool, "int" := Int])
                   `shouldBe` "{\"bool\":true}"
        it "parses from JSON" $
-           do decode "{\"bool\":true}" `shouldBe`
-                  ((Just $ toTaggedVariant #bool True) :: Maybe (TaggedVariant '["bool" := Bool, "int" := Int]))
-              decode "{\"int\":123}" `shouldBe`
-                  ((Just $ toTaggedVariant #int (123 :: Int)) :: Maybe (TaggedVariant '["bool" := Bool, "int" := Int]))
-              decode "\"foo\"" `shouldBe`
-                  (Nothing :: Maybe (Variant '[Bool, Int]))
+           do fmap unJsonTaggedVariant (decode "{\"bool\":true}") `shouldBe`
+                  ((Just $ toTaggedVariant #bool True) :: Maybe (Variant '["bool" := Bool, "int" := Int]))
+              fmap unJsonTaggedVariant (decode "{\"int\":123}") `shouldBe`
+                  ((Just $ toTaggedVariant #int (123 :: Int)) :: Maybe (Variant '["bool" := Bool, "int" := Int]))
+              fmap unJsonTaggedVariant (decode "{\"sss\":123}") `shouldBe`
+                  (Nothing :: Maybe (Variant '["bool" := Bool, "int" := Int]))
        it "has correct equality" $
-           let mkVal :: Int -> TaggedVariant '["foo" := Bool, "bar" := Int]
+           let mkVal :: Int -> Variant '["foo" := Bool, "bar" := Int]
                mkVal = toTaggedVariant #bar
            in do mkVal 2 == mkVal 5 `shouldBe` False
                  mkVal 2 == mkVal 2 `shouldBe` True
        it "has correct ord" $
-           let mkVal :: Int -> TaggedVariant '["foo" := Bool, "bar" := Int]
+           let mkVal :: Int -> Variant '["foo" := Bool, "bar" := Int]
                mkVal = toTaggedVariant #bar
            in do mkVal 2 > mkVal 5 `shouldBe` False
                  mkVal 2 < mkVal 5 `shouldBe` True
