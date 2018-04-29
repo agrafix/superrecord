@@ -5,6 +5,12 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+import SuperRecord
+import SuperRecord.TaggedVariant
+import SuperRecord.TextVariant
+import SuperRecord.Variant
+
 import Criterion
 import Criterion.Main
 
@@ -12,8 +18,8 @@ import Control.DeepSeq
 import Data.Aeson
 import GHC.Generics
 import GHC.TypeLits
-import SuperRecord
 import qualified Bookkeeper as B
+import qualified Data.Text as T
 import qualified Labels as L
 
 data Nested
@@ -122,9 +128,94 @@ r1N =
     -- not statically known at compile time)
     read "Native { n_f1 = \"Hi\", n_f2 = 213, n_f3 = True, n_f4 = Nested { n_f41 = \"Hi\"} }"
 
+data NativeSumType
+    = SBool Bool
+    | SInt Int
+    | SStr String
+    deriving (Show, Read, Eq, Generic)
+
+instance NFData NativeSumType
+
+nativeSumType :: NativeSumType
+nativeSumType = read "SStr \"fooo\"" -- see above why we read here.
+
+nativeSumTypeFun :: NativeSumType -> Int
+nativeSumTypeFun st =
+    case st of
+      SBool x -> if x then 1 else 0
+      SInt i -> i
+      SStr s -> length s
+
+type TaggedSumType = TaggedVariant '["sbool" := Bool, "sint" := Int, "sstr" := String]
+
+taggedSumType :: TaggedSumType
+taggedSumType = toTaggedVariant #sstr ("fooo" :: String)
+
+taggedSumTypeFun :: TaggedSumType -> Int
+taggedSumTypeFun st =
+    taggedVariantMatch st $
+    TaggedVariantCase #sbool (\x -> if x then 1 else 0) $
+    TaggedVariantCase #sint (\i -> i) $
+    TaggedVariantCase #sstr (\s -> length s) $
+    TaggedVariantEnd
+
+type VariantSumType = Variant '[Bool, Int, String]
+
+variantSumType :: VariantSumType
+variantSumType = toVariant ("fooo" :: String)
+
+variantSumTypeFun :: VariantSumType -> Int
+variantSumTypeFun st =
+    variantMatch st $
+    VariantCase (\x -> if x then 1 else 0) $
+    VariantCase (\i -> i) $
+    VariantCase (\s -> length s) $
+    VariantEnd
+
+type VariantTextSumType = TextVariant '["foo", "bar", "baz"]
+
+variantTextSumType :: VariantTextSumType
+variantTextSumType = toTextVariant #baz
+
+variantTextSumTypeFun :: VariantTextSumType -> Int
+variantTextSumTypeFun st =
+    textVariantMatch st $
+    TextVariantCase #foo 1 $
+    TextVariantCase #bar 2 $
+    TextVariantCase #baz 3 $
+    TextVariantEnd
+
+nativeTextSumType :: T.Text
+nativeTextSumType = read "\"baz\"" -- see above why reading here.
+
+nativeTextSumTypeFun :: T.Text -> Int
+nativeTextSumTypeFun st =
+    case st of
+      "foo" -> 1
+      "bar" -> 2
+      "baz" -> 3
+      _ -> 0
+
 main :: IO ()
 main =
     defaultMain
+    [ bgroup "record" recordBench
+    , bgroup "variant" variantBench
+    , bgroup "text-variant" textVariantBench
+    ]
+
+textVariantBench =
+    [ bench "native" $ nf nativeTextSumTypeFun nativeTextSumType
+    , bench "text" $ nf variantTextSumTypeFun variantTextSumType
+    ]
+
+variantBench =
+    [ bench "native" $ nf nativeSumTypeFun nativeSumType
+    , bench "tagged" $ nf taggedSumTypeFun taggedSumType
+    , bench "variant" $ nf variantSumTypeFun variantSumType
+    ]
+
+recordBench =
     [ bgroup "get"
         [ bench "superrecord" $ nf (get #f2) r1
         , bench "labels" $ nf (L.get #f2) r1L
@@ -144,7 +235,7 @@ main =
         , bench "labels" $
             nf (\r -> L.get #f41 . L.get #f4 $ L.modify #f4 (L.set #f41 "Hello") r) r1L
         , bench "bookkeeper" $
-            nf (\r -> (r B.& #f4 B.%: (\s -> s B.& #f41 B.%: const "Hello")) B.?: #f4 B.?: #f41) r1B
+            nf (\r -> (r B.& #f4 B.%: (\s -> s B.& #f41 B.%: const ("Hello" :: String))) B.?: #f4 B.?: #f41) r1B
         , bench "native" $
             nf (\r -> n_f41 $ n_f4 (r { n_f4 = (n_f4 r) { n_f41 = "Hello" } })) r1N
         ]
