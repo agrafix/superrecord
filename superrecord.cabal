@@ -24,6 +24,7 @@ library
   exposed-modules:     SuperRecord
                      , SuperRecord.Variant
                      , SuperRecord.TaggedVariant
+                     , SuperRecord.TextVariant
   other-modules:       SuperRecord.Field
                      , SuperRecord.Sort
   build-depends:       base >= 4.9 && < 5
@@ -51,6 +52,7 @@ test-suite superrecord-test
                      , hspec
                      , aeson
                      , mtl
+                     , text
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 

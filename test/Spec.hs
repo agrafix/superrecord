@@ -11,6 +11,7 @@ module Main where
 
 import SuperRecord
 import SuperRecord.TaggedVariant
+import SuperRecord.TextVariant
 import SuperRecord.Variant
 
 import Control.Monad.Reader
@@ -18,6 +19,7 @@ import Data.Aeson
 import Data.Aeson.Encoding
 import GHC.Generics (Generic)
 import Test.Hspec
+import qualified Data.Text as T
 
 data V1
 data V2
@@ -91,6 +93,7 @@ main =
     do recordTests
        variantTests
        taggedVariantTests
+       textVariantTests
 
 variantTests :: SpecWith ()
 variantTests =
@@ -175,6 +178,58 @@ taggedVariantTests =
                mkVal = toTaggedVariant #bar
            in do mkVal 2 > mkVal 5 `shouldBe` False
                  mkVal 2 < mkVal 5 `shouldBe` True
+
+textVariantTests :: SpecWith ()
+textVariantTests =
+    describe "TextVariants" $
+    do it "works with single element variant" $
+           let v :: TextVariant '["foo"]
+               v = toTextVariant #foo
+           in fromTextVariant v `shouldBe` "foo"
+       it "works with multi element variant" $
+           let v :: TextVariant '["foo", "bar"]
+               v = toTextVariant #bar
+           in fromTextVariant v `shouldBe` "bar"
+       it "can be built from runtime text" $
+           let makeV :: T.Text -> Maybe (TextVariant '["foo", "bar"])
+               makeV = buildTextVariant
+           in do fmap fromTextVariant (makeV "bar") `shouldBe` Just "bar"
+                 fmap fromTextVariant (makeV "foo") `shouldBe` Just "foo"
+                 fmap fromTextVariant (makeV "asdasd") `shouldBe` Nothing
+       it "works with pattern matching" $
+           let r :: TextVariant '["foo", "bar", "baz"] -> String
+               r v =
+                   textVariantMatch v $
+                   TextVariantCase #foo "foo" $
+                   TextVariantCase #bar "bar" $
+                   TextVariantCase #baz "baz"
+                   TextVariantEnd
+           in do r (toTextVariant #baz) `shouldBe` "baz"
+                 r (toTextVariant #bar) `shouldBe` "bar"
+                 r (toTextVariant #foo) `shouldBe` "foo"
+       it "works with wildcard pattern matching" $
+           let r :: TextVariant '["foo", "bar", "baz"] -> String
+               r v =
+                   textVariantMatch v $
+                   TextVariantCase #foo "foo" $
+                   TextVariantWildCard "wild"
+           in do r (toTextVariant #baz) `shouldBe` "wild"
+                 r (toTextVariant #bar) `shouldBe` "wild"
+                 r (toTextVariant #foo) `shouldBe` "foo"
+       it "has correct equality" $
+           let val1 :: TextVariant '["foo", "bar"]
+               val1 = toTextVariant #bar
+               val2 :: TextVariant '["foo", "bar"]
+               val2 = toTextVariant #foo
+           in do val1 == val2 `shouldBe` False
+                 val1 == val1 `shouldBe` True
+       it "has correct ord" $
+           let val1 :: TextVariant '["foo", "bar"]
+               val1 = toTextVariant #bar
+               val2 :: TextVariant '["foo", "bar"]
+               val2 = toTextVariant #foo
+           in do val1 > val2 `shouldBe` False
+                 val1 < val2 `shouldBe` True
 
 recordTests :: SpecWith ()
 recordTests =
