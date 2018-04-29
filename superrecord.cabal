@@ -7,7 +7,7 @@ license:             BSD3
 license-file:        LICENSE
 author:              Alexander Thiemann
 maintainer:          mail@athiemann.net
-copyright:           2017 Alexander Thiemann <mail@athiemann.net>
+copyright:           2017-2018 Alexander Thiemann <mail@athiemann.net>
 category:            Web
 build-type:          Simple
 extra-source-files:
