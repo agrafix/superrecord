@@ -126,6 +126,18 @@ variantTests =
            in do r (toVariant ()) `shouldBe` "wild"
                  r (toVariant (23 :: Int)) `shouldBe` "wild"
                  r (toVariant False) `shouldBe` "no"
+       it "serialises to JSON" $
+           do encode ((toVariant (123 :: Int)) :: Variant '[Bool, Int])
+                  `shouldBe` "123"
+              encode ((toVariant True) :: Variant '[Bool, Int])
+                  `shouldBe` "true"
+       it "parses from JSON" $
+           do decode "true" `shouldBe`
+                  ((Just $ toVariant True) :: Maybe (Variant '[Bool, Int]))
+              decode "123" `shouldBe`
+                  (Just ((toVariant (123 :: Int)) :: (Variant '[Bool, Int])))
+              decode "\"foo\"" `shouldBe`
+                  (Nothing :: Maybe (Variant '[Bool, Int]))
        it "has correct equality" $
            let mkVal :: Int -> Variant '[Bool, Int]
                mkVal = toVariant
@@ -168,6 +180,18 @@ taggedVariantTests =
            in do r (toTaggedVariant #baz ()) `shouldBe` "wild"
                  r (toTaggedVariant #bar (23 :: Int)) `shouldBe` "wild"
                  r (toTaggedVariant #foo False) `shouldBe` "no"
+       it "serialises to JSON" $
+           do encode ((toTaggedVariant #int (123 :: Int)) :: TaggedVariant '["bool" := Bool, "int" := Int])
+                  `shouldBe` "{\"int\":123}"
+              encode ((toTaggedVariant #bool True) :: TaggedVariant '["bool" := Bool, "int" := Int])
+                  `shouldBe` "{\"bool\":true}"
+       it "parses from JSON" $
+           do decode "{\"bool\":true}" `shouldBe`
+                  ((Just $ toTaggedVariant #bool True) :: Maybe (TaggedVariant '["bool" := Bool, "int" := Int]))
+              decode "{\"int\":123}" `shouldBe`
+                  ((Just $ toTaggedVariant #int (123 :: Int)) :: Maybe (TaggedVariant '["bool" := Bool, "int" := Int]))
+              decode "\"foo\"" `shouldBe`
+                  (Nothing :: Maybe (Variant '[Bool, Int]))
        it "has correct equality" $
            let mkVal :: Int -> TaggedVariant '["foo" := Bool, "bar" := Int]
                mkVal = toTaggedVariant #bar
@@ -196,6 +220,21 @@ textVariantTests =
            in do fmap fromTextVariant (makeV "bar") `shouldBe` Just "bar"
                  fmap fromTextVariant (makeV "foo") `shouldBe` Just "foo"
                  fmap fromTextVariant (makeV "asdasd") `shouldBe` Nothing
+       it "serialises to JSON" $
+           let makeV :: T.Text -> Maybe (TextVariant '["foo", "bar"])
+               makeV = buildTextVariant
+           in do fmap encode (makeV "bar") `shouldBe` Just "\"bar\""
+                 fmap encode (makeV "foo") `shouldBe` Just "\"foo\""
+                 fmap encode (makeV "asdasd") `shouldBe` Nothing
+       it "parses from JSON" $
+           let val1 :: TextVariant '["foo", "bar"]
+               val1 = toTextVariant #bar
+               val2 :: TextVariant '["foo", "bar"]
+               val2 = toTextVariant #foo
+           in do eitherDecode "\"foo\"" `shouldBe` Right val2
+                 eitherDecode "\"bar\"" `shouldBe` Right val1
+                 decode "basdasdar" `shouldBe`
+                     (Nothing :: Maybe (TextVariant '["foo", "bar"]))
        it "works with pattern matching" $
            let r :: TextVariant '["foo", "bar", "baz"] -> String
                r v =

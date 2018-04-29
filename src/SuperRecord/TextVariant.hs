@@ -19,12 +19,25 @@ where
 
 import SuperRecord.Field
 
+import Data.Aeson
 import GHC.TypeLits
 import qualified Data.Text as T
 
 newtype TextVariant (opts :: [Symbol])
     = TextVariant T.Text
     deriving (Show, Eq, Ord)
+
+instance ToJSON (TextVariant opts) where
+    toJSON = toJSON . fromTextVariant
+
+instance TextVariantBuilder opts => FromJSON (TextVariant opts) where
+    parseJSON x =
+        do r <- parseJSON x
+           let go txt =
+                   case buildTextVariant txt of
+                     Nothing -> fail ("Invalid text variant value: " ++ show txt)
+                     Just ok -> pure ok
+           withText "TextVariant" go r
 
 type role TextVariant representational
 

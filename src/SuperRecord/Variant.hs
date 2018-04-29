@@ -16,6 +16,9 @@ module SuperRecord.Variant
     )
 where
 
+import Control.Applicative
+import Data.Aeson
+import Data.Aeson.Types (Parser)
 import Data.Maybe
 import Data.Proxy
 import GHC.Base (Any)
@@ -26,6 +29,34 @@ data Variant (opts :: [*])
     = Variant {-# UNPACK #-} !Word Any
 
 type role Variant representational
+
+instance ToJSON (Variant '[]) where
+    toJSON _ = toJSON ()
+
+instance (ToJSON t, ToJSON (Variant ts)) => ToJSON (Variant (t ': ts)) where
+    toJSON v1 =
+        let w1 :: Maybe t
+            w1 = fromVariant v1
+        in fromMaybe (toJSON $ shrinkVariant v1) $ toJSON <$> w1
+
+instance FromJSON (Variant '[]) where
+    parseJSON r =
+        do () <- parseJSON r
+           pure emptyVariant
+
+instance ( FromJSON t, FromJSON (Variant ts)
+         ) => FromJSON (Variant (t ': ts)) where
+    parseJSON r =
+        do let myParser :: Parser t
+               myParser = parseJSON r
+               myPackedParser :: Parser (Variant (t ': ts))
+               myPackedParser = toVariant <$> myParser
+               nextPackedParser :: Parser (Variant ts)
+               nextPackedParser = parseJSON r
+               lift (Variant t v) = (Variant (t + 1) v)
+               myNextPackedParser :: Parser (Variant (t ': ts))
+               myNextPackedParser = lift <$> nextPackedParser
+           myPackedParser <|> myNextPackedParser
 
 instance Show (Variant '[]) where
     show _ = "<EmptyVariant>"

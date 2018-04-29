@@ -18,17 +18,55 @@ where
 
 import SuperRecord.Field
 
+import Control.Applicative
+import Data.Aeson
+import Data.Aeson.Types (Parser)
 import Data.ByteString.Internal (c2w)
 import Data.Maybe
 import GHC.Base (Any)
 import GHC.TypeLits
 import Unsafe.Coerce
 import qualified Data.ByteString.Short as BSS
+import qualified Data.Text as T
 
 data TaggedVariant (opts :: [*])
     = TaggedVariant {-# UNPACK #-} !BSS.ShortByteString Any
 
 type role TaggedVariant representational
+
+instance ToJSON (TaggedVariant '[]) where
+    toJSON _ = toJSON ()
+
+instance (KnownSymbol lbl, ToJSON t, ToJSON (TaggedVariant ts)) => ToJSON (TaggedVariant (lbl := t ': ts)) where
+    toJSON v1 =
+        let w1 :: Maybe t
+            w1 = fromTaggedVariant (FldProxy :: FldProxy lbl) v1
+            tag = T.pack $ symbolVal (FldProxy :: FldProxy lbl)
+        in let val =
+                   fromMaybe (toJSON $ shrinkTaggedVariant v1) $
+                   (\x -> object [tag .= x]) <$> w1
+           in val
+
+instance FromJSON (TaggedVariant '[]) where
+    parseJSON r =
+        do () <- parseJSON r
+           pure emptyTaggedVariant
+
+instance ( FromJSON t, FromJSON (TaggedVariant ts)
+         , KnownSymbol lbl
+         ) => FromJSON (TaggedVariant (lbl := t ': ts)) where
+    parseJSON r =
+        do let tag = T.pack $ symbolVal (FldProxy :: FldProxy lbl)
+               myParser :: Parser t
+               myParser = withObject ("Tagged " ++ show tag) (\o -> o .: tag) r
+               myPackedParser :: Parser (TaggedVariant (lbl := t ': ts))
+               myPackedParser = toTaggedVariant (FldProxy :: FldProxy lbl) <$> myParser
+               nextPackedParser :: Parser (TaggedVariant ts)
+               nextPackedParser = parseJSON r
+               lift (TaggedVariant t v) = (TaggedVariant t v)
+               myNextPackedParser :: Parser (TaggedVariant (lbl := t ': ts))
+               myNextPackedParser = lift <$> nextPackedParser
+           myPackedParser <|> myNextPackedParser
 
 instance Show (TaggedVariant '[]) where
     show _ = "<EmptyTaggedVariant>"
