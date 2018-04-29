@@ -12,7 +12,7 @@ module SuperRecord.Variant
     ( Variant
     , VariantMember, VariantPos
     , emptyVariant, toVariant, fromVariant
-    , VariantMatch(..), variantMatch
+    , VariantMatch(..), VariantMatcher(..)
     )
 where
 

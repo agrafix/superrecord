@@ -23,6 +23,7 @@ library
   hs-source-dirs:      src
   exposed-modules:     SuperRecord
                      , SuperRecord.Variant
+                     , SuperRecord.TaggedVariant
   other-modules:       SuperRecord.Field
                      , SuperRecord.Sort
   build-depends:       base >= 4.9 && < 5
