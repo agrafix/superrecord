@@ -18,14 +18,15 @@ where
 
 import SuperRecord.Field
 
+import Data.ByteString.Internal (c2w)
 import Data.Maybe
 import GHC.Base (Any)
 import GHC.TypeLits
 import Unsafe.Coerce
-import qualified Data.Text as T
+import qualified Data.ByteString.Short as BSS
 
 data TaggedVariant (opts :: [*])
-    = TaggedVariant {-# UNPACK #-} !T.Text Any
+    = TaggedVariant {-# UNPACK #-} !BSS.ShortByteString Any
 
 type role TaggedVariant representational
 
@@ -70,7 +71,7 @@ toTaggedVariant ::
     (KnownSymbol lbl, TaggedVariantMember lbl a opts)
     => FldProxy lbl -> a -> TaggedVariant opts
 toTaggedVariant proxy value =
-    TaggedVariant (T.pack $ symbolVal proxy) (unsafeCoerce value)
+    TaggedVariant (BSS.pack $ map c2w $ symbolVal proxy) (unsafeCoerce value)
 
 toTaggedVariant' ::
     forall opts lbl a.
@@ -80,14 +81,14 @@ toTaggedVariant' (proxy := value) =
     toTaggedVariant proxy value
 
 emptyTaggedVariant :: TaggedVariant '[]
-emptyTaggedVariant = TaggedVariant T.empty undefined
+emptyTaggedVariant = TaggedVariant BSS.empty undefined
 
 fromTaggedVariant ::
     forall opts lbl a.
     (KnownSymbol lbl, TaggedVariantMember lbl a opts)
     => FldProxy lbl -> TaggedVariant opts -> Maybe a
 fromTaggedVariant proxy (TaggedVariant tag value) =
-    if tag == T.pack (symbolVal proxy)
+    if tag == BSS.pack (map c2w (symbolVal proxy))
        then Just (unsafeCoerce value)
        else Nothing
 

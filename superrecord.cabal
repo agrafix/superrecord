@@ -30,6 +30,7 @@ library
                      , constraints
                      , aeson >= 1.0
                      , text >= 1.2
+                     , bytestring >= 0.10
                      , deepseq >= 1.4
                      , ghc-prim >= 0.5
                      , mtl >= 2.1
