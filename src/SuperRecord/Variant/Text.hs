@@ -9,7 +9,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module SuperRecord.TextVariant
+module SuperRecord.Variant.Text
     ( TextVariant
     , TextVariantMember
     , emptyTextVariant, toTextVariant, fromTextVariant

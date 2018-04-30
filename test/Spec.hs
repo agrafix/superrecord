@@ -10,9 +10,9 @@
 module Main where
 
 import SuperRecord
-import SuperRecord.TaggedVariant
-import SuperRecord.TextVariant
 import SuperRecord.Variant
+import SuperRecord.Variant.Tagged
+import SuperRecord.Variant.Text
 
 import Control.Monad.Reader
 import Data.Aeson

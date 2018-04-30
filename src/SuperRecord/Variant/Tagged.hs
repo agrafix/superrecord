@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module SuperRecord.TaggedVariant
+module SuperRecord.Variant.Tagged
     ( TaggedVariant, toTaggedVariant, fromTaggedVariant
     , taggedVariantCase
     , JsonTaggedVariant(..)

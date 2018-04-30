@@ -7,9 +7,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 import SuperRecord
-import SuperRecord.TaggedVariant
-import SuperRecord.TextVariant
 import SuperRecord.Variant
+import SuperRecord.Variant.Tagged
+import SuperRecord.Variant.Text
 
 import Criterion
 import Criterion.Main
