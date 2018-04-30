@@ -4,6 +4,6 @@
 
 Hackage: [superrecord](https://hackage.haskell.org/package/superrecord)
 
-Supercharged anonymous records
+Supercharged (fast!) anonymous records and variants (open sums) for Haskell.
 
-For a full introduction and explication please read [this blog post](https://www.athiemann.net/2017/07/02/superrecord.html).
+For an introduction to anonymous records read [this blog post](https://www.athiemann.net/2017/07/02/superrecord.html).
