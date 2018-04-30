@@ -25,6 +25,9 @@ import Data.Aeson
 import GHC.TypeLits
 import qualified Data.Text as T
 
+-- | A text only variant: A wrapped 'T.Text' that can only be
+-- one of the given values tracked at type level. Very useful
+-- for interacting with enum-like string in JSON APIs.
 newtype TextVariant (opts :: [Symbol])
     = TextVariant T.Text
     deriving (Show, Eq, Ord, NFData)
@@ -47,6 +50,8 @@ type family TextVariantMember (lbl :: Symbol) (opts :: [Symbol]) where
     TextVariantMember lbl (lbl ': xs) = 'True ~ 'True
     TextVariantMember lbl (lbl1 ': ys) = TextVariantMember lbl ys
 
+-- | Create a 'TextVariant' value from a statically known string. Use
+-- OverloadedLabels for nice syntax: @toTextVariant #myString@
 toTextVariant ::
     forall opts lbl.
     (KnownSymbol lbl, TextVariantMember lbl opts)
@@ -54,9 +59,12 @@ toTextVariant ::
 toTextVariant proxy =
     TextVariant (T.pack $ symbolVal proxy)
 
+-- | An empty 'TextVariant', equivalent to `()`
 emptyTextVariant :: TextVariant '[]
 emptyTextVariant = TextVariant mempty
 
+-- | Convert a 'TextVariant' back to a normal 'T.Text'. This operation
+-- is cheap since 'TextVariant' is a simple newtype.
 fromTextVariant :: TextVariant opts -> T.Text
 fromTextVariant (TextVariant val) = val
 
@@ -69,6 +77,8 @@ data TextVariantMatch r ts where
 shrinkTextVariant :: TextVariant (t ': ts) -> TextVariant ts
 shrinkTextVariant (TextVariant tag) = TextVariant tag
 
+-- | Pattern matching helper with totality check. Note that the performance
+-- of this pattern match is roughly like a normal pattern match. (See benchmarks)
 class TextVariantMatcher r opts where
    textVariantMatch :: TextVariant opts -> TextVariantMatch r opts -> r
 
@@ -87,6 +97,9 @@ instance TextVariantMatcher r '[] where
        TextVariantWildCard r -> r
        TextVariantEnd -> error "This should never happen"
 
+-- | Build a variant from a text that is not statically known at compile time.
+-- Returns 'Nothing' on failure (i.E. when a value is given that is not part of
+-- the variant)
 class TextVariantBuilder opts where
    buildTextVariant :: T.Text -> Maybe (TextVariant opts)
 

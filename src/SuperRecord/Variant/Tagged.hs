@@ -24,8 +24,11 @@ import Data.Maybe
 import GHC.TypeLits
 import qualified Data.Text as T
 
+-- | Just a type alias vor 'Variant'
 type TaggedVariant opts = Variant opts
 
+-- | Newtype wrapper for  'TaggedVariant' which provides a useful JSON
+-- encoding of tagged variants in the form @{"tag": <value>}@
 newtype JsonTaggedVariant opts
     = JsonTaggedVariant { unJsonTaggedVariant :: TaggedVariant opts }
 
@@ -67,6 +70,11 @@ instance ( FromJSON t, FromJSON (JsonTaggedVariant ts)
                    JsonTaggedVariant . extendVariant . unJsonTaggedVariant <$> nextPackedParser
            myPackedParser <|> myNextPackedParser
 
+-- | Helper function to construct a tagged variant value given the tag
+-- and the value. Note that you can use OverloadedLabels for nicer syntax
+-- to construct the 'FldProxy'.
+--
+-- > toTaggedVariant #myTag "myValue"
 toTaggedVariant ::
     forall opts lbl a pos.
     ( KnownSymbol lbl, VariantMember (lbl := a) opts
@@ -75,6 +83,8 @@ toTaggedVariant ::
     => FldProxy lbl -> a -> TaggedVariant opts
 toTaggedVariant proxy value = toVariant (proxy := value)
 
+-- | Convert a variant back to a common Haskell type. Returns nothing
+-- if the variant is not of the right tag and type.
 fromTaggedVariant ::
     forall opts lbl a pos.
     ( KnownSymbol lbl, VariantMember (lbl := a) opts
@@ -88,7 +98,7 @@ fromTaggedVariant _ variant =
          Just (_ := r) -> Just r
          Nothing -> Nothing
 
--- VariantCase :: (t -> r) -> VariantMatch r ts -> VariantMatch r (t ':  ts)
+-- | Nicer syntax for 'VariantCase' for tagged variants.
 taggedVariantCase ::
     forall lbl t ts r.
     FldProxy lbl -> (t -> r) -> VariantMatch r ts

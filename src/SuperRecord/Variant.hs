@@ -27,6 +27,8 @@ import GHC.Base (Any)
 import GHC.TypeLits
 import Unsafe.Coerce
 
+-- | A variant is used to express that a values type is of any of
+-- the types tracked in the type level list.
 data Variant (opts :: [*])
     = Variant {-# UNPACK #-} !Word Any
 
@@ -111,15 +113,20 @@ type family VariantPosHelper idx a opts where
 
 type VariantPos a opts = VariantPosHelper 1 a opts
 
+-- | Convert a usual Haskell type into a 'Variant'. It's very
+-- useful to provide type signatures for the 'Variant's.
 toVariant ::
     forall opts a pos.
     (KnownNat pos, VariantPos a opts ~ pos, VariantMember a opts)
     => a -> Variant opts
 toVariant x = Variant (fromIntegral $ natVal (Proxy :: Proxy pos)) (unsafeCoerce x)
 
+-- | An empty 'Variant', equivalent to `()`
 emptyVariant :: Variant '[]
 emptyVariant = Variant 0 undefined
 
+-- | Convert a 'Variant' back to a usual Haskell type, returning 'Nothing'
+-- if the variant is not of the desired type.
 fromVariant ::
     forall opts a pos.
     (KnownNat pos, VariantPos a opts ~ pos, VariantMember a opts)
@@ -136,12 +143,16 @@ data VariantMatch r ts where
     VariantEnd :: VariantMatch r '[]
     VariantWildCard :: r -> VariantMatch r ts
 
+-- | Remove an option from a 'Variant'
 shrinkVariant :: Variant (t ': ts) -> Variant ts
 shrinkVariant (Variant tag value) = Variant (tag - 1) value
 
+-- | Add an option to a 'Variant'
 extendVariant :: Variant ts -> Variant (t ': ts)
 extendVariant (Variant tag value) = Variant (tag + 1) value
 
+-- | Pattern matching helper with totality check. Note that the performance
+-- of this pattern match is roughly like a normal pattern match. (See benchmarks)
 class VariantMatcher r opts where
    variantMatch :: Variant opts -> VariantMatch r opts -> r
 
