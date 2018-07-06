@@ -3,6 +3,10 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
+#if MIN_VERSION_base(4, 12, 0)
+{-# LANGUAGE NoStarIsType #-}
+#endif
 module SuperRecord.Sort
     ( FieldListSort
     )
@@ -10,6 +14,7 @@ where
 
 import SuperRecord.Field
 
+import Data.Kind (Type)
 import Data.Proxy
 import GHC.TypeLits
 
@@ -49,26 +54,26 @@ type family ListDrop (xs :: [k]) (n :: Nat) :: [k] where
     ListDrop xs 0 = xs
     ListDrop (x ': xs) n = ListDrop xs (n - 1)
 
-type family FieldListMergeHelper (xs :: [*]) (ys :: [*]) (o :: Ordering) :: [*] where
+type family FieldListMergeHelper (xs :: [Type]) (ys :: [Type]) (o :: Ordering) :: [Type] where
     FieldListMergeHelper (x := xv ': xs) (y := yv ': ys) 'GT =
         (y := yv) ': FieldListMerge (x := xv ': xs) ys
     FieldListMergeHelper (x := xv ': xs) (y := yv ': ys) leq =
         (x := xv) ': FieldListMerge xs (y := yv ': ys)
 
-type family FieldListMerge (xs :: [*]) (ys :: [*]) :: [*] where
+type family FieldListMerge (xs :: [Type]) (ys :: [Type]) :: [Type] where
     FieldListMerge xs '[] = xs
     FieldListMerge '[] ys = ys
     FieldListMerge (x := xv ': xs) (y := yv ': ys) =
         FieldListMergeHelper (x := xv ': xs) (y := yv ': ys) (CmpSymbol x y)
 
-type family ListSortStep (xs :: [*]) (halfLen :: Nat) :: [*] where
+type family ListSortStep (xs :: [Type]) (halfLen :: Nat) :: [Type] where
     ListSortStep xs halfLen =
         FieldListMerge
             (FieldListSort (ListTake xs halfLen))
             (FieldListSort (ListDrop xs halfLen))
 
 -- | Sort a list of fields using merge sort
-type family FieldListSort (xs :: [*]) :: [*] where
+type family FieldListSort (xs :: [Type]) :: [Type] where
     FieldListSort '[] = '[]
     FieldListSort '[x] = '[x]
     FieldListSort '[x, y] = FieldListMerge '[x] '[y] -- not needed, just an optimization
