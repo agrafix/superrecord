@@ -1,3 +1,7 @@
+# 0.5.0.1
+
+* GHC 8.6 pre-release compatibility (h/t @galenhuntington)
+
 # 0.5.0.0
 
 * Added variant types

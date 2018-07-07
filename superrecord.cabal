@@ -1,5 +1,5 @@
 name:                superrecord
-version:             0.5.0.0
+version:             0.5.0.1
 synopsis:            Supercharged anonymous records
 description:         Anonymous records with various useful utilities
 homepage:            https://github.com/agrafix/superrecord#readme
