@@ -55,6 +55,7 @@ module SuperRecord
     , recToValue, recToEncoding
     , recJsonParser, RecJsonParse(..)
     , RecNfData(..)
+    , RecVecIdxPos
     , RecSize, RemoveAccessTo
     , FldProxy(..), RecDeepTy
     , RecAll
