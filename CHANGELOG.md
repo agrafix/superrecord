@@ -1,3 +1,7 @@
+# 0.5.1.0
+
+* Exported `unsafeRNil` and `unsafeRCons`.
+
 # 0.5.0.1
 
 * GHC 8.6 pre-release compatibility (h/t @galenhuntington)
