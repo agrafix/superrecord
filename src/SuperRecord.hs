@@ -61,6 +61,9 @@ module SuperRecord
     , RecAll
     , KeyDoesNotExist
     , Sort
+      -- * Unsafe operations
+    , unsafeRNil
+    , unsafeRCons
     )
 where
 
