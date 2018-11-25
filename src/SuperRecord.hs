@@ -152,23 +152,23 @@ runST' !s = runST s
 
 -- | An empty record
 rnil :: Rec '[]
-rnil = unsafeRnil 0
+rnil = unsafeRNil 0
 {-# INLINE rnil #-}
 
 -- | An empty record with an initial size for the record
-unsafeRnil :: Int -> Rec '[]
+unsafeRNil :: Int -> Rec '[]
 #ifndef JS_RECORD
-unsafeRnil (I# n#) =
+unsafeRNil (I# n#) =
     runST' $ ST $ \s# ->
     case newSmallArray# n# (error "No Value") s# of
       (# s'#, arr# #) ->
           case unsafeFreezeSmallArray# arr# s'# of
             (# s''#, a# #) -> (# s''# , Rec a# #)
 #else
-unsafeRnil _ =
+unsafeRNil _ =
     unsafePerformIO $! Rec <$> JS.create
 #endif
-{-# INLINE unsafeRnil #-}
+{-# INLINE unsafeRNil #-}
 
 -- | Prepend a record entry to a record 'Rec'
 rcons ::
@@ -238,7 +238,7 @@ instance
              s'# -> recCopyInto pNext lts prxy tgt# s'#
 
 -- | Prepend a record entry to a record 'Rec'. Assumes that the record was created with
--- 'unsafeRnil' and still has enough free slots, mutates the original 'Rec' which should
+-- 'unsafeRNil' and still has enough free slots, mutates the original 'Rec' which should
 -- not be reused after
 unsafeRCons ::
     forall l t lts s.
@@ -674,7 +674,7 @@ class RecJsonParse (lts :: [*]) where
     recJsonParse :: Int -> Object -> Parser (Rec lts)
 
 instance RecJsonParse '[] where
-    recJsonParse initSize _ = pure (unsafeRnil initSize)
+    recJsonParse initSize _ = pure (unsafeRNil initSize)
 
 instance
     ( KnownSymbol l, FromJSON t, RecJsonParse lts
