@@ -78,7 +78,7 @@ import Data.Constraint
 import Data.Proxy
 import GHC.Base (Int(..), Any)
 import GHC.Generics
-import GHC.Prim
+import GHC.Exts
 import GHC.TypeLits
 import qualified Control.Monad.State as S
 import qualified Data.Text as T
