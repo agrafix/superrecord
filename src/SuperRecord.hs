@@ -239,12 +239,13 @@ instance
 
 -- | Prepend a record entry to a record 'Rec'. Assumes that the record was created with
 -- 'unsafeRNil' and still has enough free slots, mutates the original 'Rec' which should
--- not be reused after
+-- not be reused after.
+--
+-- Does /not/ check that the key being inserted doesn't clash.
 unsafeRCons ::
     forall l t lts s.
     ( RecSize lts ~ s
     , KnownNat s
-    , KeyDoesNotExist l lts
 #ifdef JS_RECORD
     , ToJSVal t
 #endif
