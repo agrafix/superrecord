@@ -46,7 +46,7 @@ r1 =
 r2 :: Record '["foo" := String]
 r2 = #foo := "He" & rnil
 
-polyFun :: Has "foo" lts String => Rec lts -> String
+polyFun :: Has lts "foo" String => Rec lts -> String
 polyFun = get #foo
 
 polyFun2 :: HasOf '["foo" := String, "bar" := Bool] lts => Rec lts -> String
@@ -57,7 +57,7 @@ rNested :: Record '["foo" := Record '["bar" := Int] ]
 rNested =
     #foo := (#bar := 213 & rnil) & rnil
 
-mtlAsk :: (MonadReader (Rec env) m, Has "id" env Int) => m Int
+mtlAsk :: (MonadReader (Rec env) m, Has env "id" Int) => m Int
 mtlAsk = asksR #id
 
 type BigFieldList =
