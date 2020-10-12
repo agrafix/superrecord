@@ -19,6 +19,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
 
 #ifdef JS_RECORD
 {-# LANGUAGE JavaScriptFFI #-}
@@ -51,10 +53,9 @@ module SuperRecord
     , RecCopy
     , RecTyIdxH
     , showRec, RecKeys(..), recKeys
-    , RecEq(..)
     , recToValue, recToEncoding
     , recJsonParser, RecJsonParse(..)
-    , RecNfData(..)
+    , UnsafeRecBuild(..), recBuild
     , RecVecIdxPos
     , RecSize, RemoveAccessTo
     , FldProxy(..), RecDeepTy
@@ -76,7 +77,6 @@ import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Constraint
 import Data.Proxy
-import GHC.Base (Int(..), Any)
 import GHC.Generics
 import GHC.Exts
 import GHC.TypeLits
@@ -125,15 +125,20 @@ copyObject obj =
        pure objNew
 #endif
 
-instance (RecApply lts lts Show) => Show (Rec lts) where
+class    c a => ConstC c k a where
+instance c a => ConstC c k a where
+class    ( c1 k a, c2 k a ) => Tuple22C c1 c2 k a
+instance ( c1 k a, c2 k a ) => Tuple22C c1 c2 k a
+
+instance (RecApply lts lts (ConstC Show)) => Show (Rec lts) where
     show = show . showRec
 
-instance RecEq lts lts => Eq (Rec lts) where
-    (==) (a :: Rec lts) (b :: Rec lts) = recEq a b (Proxy :: Proxy lts)
+instance RecApply lts lts (Tuple22C (ConstC Eq) (Has lts)) => Eq (Rec lts) where
+    r1 == r2 = recApply @lts @lts @(Tuple22C (ConstC Eq) (Has lts)) ( \lbl v b -> get lbl r2 == v && b ) r1 True
     {-# INLINE (==) #-}
 
 instance
-    ( RecApply lts lts ToJSON
+    ( RecApply lts lts (ConstC ToJSON)
     ) => ToJSON (Rec lts) where
     toJSON = recToValue
     toEncoding = recToEncoding
@@ -141,8 +146,15 @@ instance
 instance (RecSize lts ~ s, KnownNat s, RecJsonParse lts) => FromJSON (Rec lts) where
     parseJSON = recJsonParser
 
-instance RecNfData lts lts => NFData (Rec lts) where
-    rnf = recNfData (Proxy :: Proxy lts)
+instance RecApply lts lts (ConstC NFData) => NFData (Rec lts) where
+    rnf r = recApply @lts @lts @(ConstC NFData) (\_ !v b -> v `deepseq` b) r ()
+
+instance RecApply lts lts (Tuple22C (ConstC Semigroup) (Has lts)) => Semigroup (Rec lts) where
+    r1 <> r2 = recApply @lts @lts @(Tuple22C (ConstC Semigroup) (Has lts))
+      (\lbl v res -> modify lbl (<> v) res) r1 r2
+
+instance (Semigroup (Rec lts), UnsafeRecBuild lts lts (ConstC Monoid)) => Monoid (Rec lts) where
+    mempty = unsafeRecBuild @lts @lts @(ConstC Monoid) (\ _ _ -> mempty)
 
 -- Hack needed because $! doesn't have the same special treatment $ does to work with ST yet
 #ifndef JS_RECORD
@@ -222,8 +234,8 @@ instance RecCopy '[] lts rts where
     recCopyInto _ _ _ _ s# = s#
 
 instance
-    ( Has l rts t
-    , Has l lts t
+    ( Has rts l t
+    , Has lts l t
     , RecCopy (RemoveAccessTo l (l := t ': pts)) lts rts
     ) => RecCopy (l := t ': pts) lts rts where
     recCopyInto _ lts prxy tgt# s# =
@@ -244,7 +256,6 @@ unsafeRCons ::
     forall l t lts s.
     ( RecSize lts ~ s
     , KnownNat s
-    , KeyDoesNotExist l lts
 #ifdef JS_RECORD
     , ToJSVal t
 #endif
@@ -339,23 +350,31 @@ type family RecTy (l :: Symbol) (lts :: [*]) :: k where
 
 -- | Require a record to contain at least the listed labels
 type family HasOf (req :: [*]) (lts :: [*]) :: Constraint where
-    HasOf (l := t ': req) lts = (Has l lts t, HasOf req lts)
+    HasOf (l := t ': req) lts = (Has lts l t, HasOf req lts)
     HasOf '[] lts = 'True ~ 'True
 
 -- | Require a record to contain a label
-type Has l lts v =
+class
    ( RecTy l lts ~ v
    , KnownNat (RecSize lts)
    , KnownNat (RecVecIdxPos l lts)
 #ifdef JS_RECORD
    , KnownSymbol l, FromJSVal v, ToJSVal v
 #endif
-   )
+   ) => Has lts l v
+instance
+   ( RecTy l lts ~ v
+   , KnownNat (RecSize lts)
+   , KnownNat (RecVecIdxPos l lts)
+#ifdef JS_RECORD
+   , KnownSymbol l, FromJSVal v, ToJSVal v
+#endif
+   ) => Has lts l v
 
 -- | Get an existing record field
 get ::
     forall l v lts.
-    ( Has l lts v
+    ( Has lts l v
     )
     => FldProxy l -> Rec lts -> v
 #ifndef JS_RECORD
@@ -376,14 +395,14 @@ get lbl (Rec obj) =
 {-# INLINE get #-}
 
 -- | Alias for 'get'
-(&.) :: forall l v lts. (Has l lts v) => Rec lts -> FldProxy l -> v
+(&.) :: forall l v lts. (Has lts l v) => Rec lts -> FldProxy l -> v
 (&.) = flip get
 infixl 3 &.
 
 -- | Update an existing record field
 set ::
     forall l v lts.
-    (Has l lts v)
+    (Has lts l v)
     => FldProxy l -> v -> Rec lts -> Rec lts
 #ifndef JS_RECORD
 set _ !val (Rec vec#) =
@@ -415,7 +434,7 @@ set lbl !val (Rec obj) =
 -- | Update an existing record field
 modify ::
     forall l v lts.
-    (Has l lts v)
+    (Has lts l v)
     => FldProxy l -> (v -> v) -> Rec lts -> Rec lts
 modify lbl fun r = set lbl (fun $ get lbl r) r
 {-# INLINE modify #-}
@@ -458,7 +477,7 @@ class RecApplyPath p x where
     -- | Perform a deep read
     getPath' :: p -> Rec x -> RecDeepTy p x
 
-instance (Has l lts t, t ~ RecDeepTy (FldProxy l) lts) => RecApplyPath (FldProxy l) lts where
+instance (Has lts l t, t ~ RecDeepTy (FldProxy l) lts) => RecApplyPath (FldProxy l) lts where
     setPath' = modify
     {-# INLINE setPath' #-}
 
@@ -468,7 +487,7 @@ instance (Has l lts t, t ~ RecDeepTy (FldProxy l) lts) => RecApplyPath (FldProxy
 instance
     ( RecDeepTy (l :& more) lts ~ RecDeepTy more rts
     , RecTy l lts ~ Rec rts
-    , Has l lts v
+    , Has lts l v
     , v ~ Rec rts
     , RecApplyPath more rts
     ) => RecApplyPath (l :& more) lts where
@@ -582,36 +601,34 @@ instance (KnownSymbol l, RecKeys lts) => RecKeys (l := t ': lts) where
 -- | Apply a function to each key element pair for a record
 reflectRec ::
     forall c r lts. (RecApply lts lts c)
-    => Proxy c
-    -> (forall a. c a => String -> a -> r)
+    => (forall (l :: Symbol) a. (c l a, KnownSymbol l) => FldProxy l -> a -> r)
     -> Rec lts
     -> [r]
-reflectRec _ f r =
+reflectRec f r =
     reverse $
-    recApply (\(Dict :: Dict (c a)) s v xs -> (f s v : xs)) r (Proxy :: Proxy lts) []
+    recApply @lts @lts @c (\lbl v xs -> (f lbl v : xs)) r []
 {-# INLINE reflectRec #-}
 
 -- | Fold over all elements of a record
 reflectRecFold ::
     forall c r lts. (RecApply lts lts c)
-    => Proxy c
-    -> (forall a. c a => String -> a -> r -> r)
+    => (forall l a. (c l a, KnownSymbol l) => FldProxy l -> a -> r -> r)
     -> Rec lts
     -> r
     -> r
-reflectRecFold _ f r =
-    recApply (\(Dict :: Dict (c a)) s v x -> f s v x) r (Proxy :: Proxy lts)
+reflectRecFold f r =
+    recApply @lts @lts @c (\s v x -> f s v x) r
 {-# INLINE reflectRecFold #-}
 
 -- | Convert all elements of a record to a 'String'
-showRec :: forall lts. (RecApply lts lts Show) => Rec lts -> [(String, String)]
-showRec = reflectRec @Show Proxy (\k v -> (k, show v))
+showRec :: forall lts. (RecApply lts lts (ConstC Show)) => Rec lts -> [(String, String)]
+showRec = reflectRec @(ConstC Show) (\(_ :: FldProxy lbl) v -> (symbolVal' (proxy# :: Proxy# lbl), show v))
 
-recToValue :: forall lts. (RecApply lts lts ToJSON) => Rec lts -> Value
-recToValue r = object $ reflectRec @ToJSON Proxy (\k v -> (T.pack k, toJSON v)) r
+recToValue :: forall lts. (RecApply lts lts (ConstC ToJSON)) => Rec lts -> Value
+recToValue r = object $ reflectRec @(ConstC ToJSON) (\(_ :: FldProxy lbl) v -> (T.pack $ symbolVal' (proxy# :: Proxy# lbl), toJSON v)) r
 
-recToEncoding :: forall lts. (RecApply lts lts ToJSON) => Rec lts -> Encoding
-recToEncoding r = pairs $ mconcat $ reflectRec @ToJSON Proxy (\k v -> (T.pack k .= v)) r
+recToEncoding :: forall lts. (RecApply lts lts (ConstC ToJSON)) => Rec lts -> Encoding
+recToEncoding r = pairs $ mconcat $ reflectRec @(ConstC ToJSON) (\(_ :: FldProxy lbl) v -> (T.pack (symbolVal' (proxy# :: Proxy# lbl)) .= v)) r
 
 recJsonParser :: forall lts s. (RecSize lts ~ s, KnownNat s, RecJsonParse lts) => Value -> Parser (Rec lts)
 recJsonParser =
@@ -622,52 +639,50 @@ recJsonParser =
 
 -- | Machinery needed to implement 'reflectRec'
 class RecApply (rts :: [*]) (lts :: [*]) c where
-    recApply :: (forall a. Dict (c a) -> String -> a -> b -> b) -> Rec rts -> Proxy lts -> b -> b
+    recApply :: (forall (l :: Symbol) a. (KnownSymbol l, c l a) => FldProxy l -> a -> b -> b) -> Rec rts -> b -> b
 
 instance RecApply rts '[] c where
-    recApply _ _ _ b = b
+    recApply _ _ b = b
 
 instance
     ( KnownSymbol l
     , RecApply rts (RemoveAccessTo l lts) c
-    , Has l rts v
-    , c v
+    , Has rts l v
+    , c l v
     ) => RecApply rts (l := t ': lts) c where
-    recApply f r (_ :: Proxy (l := t ': lts)) b =
+    recApply f r b =
         let lbl :: FldProxy l
             lbl = FldProxy
             val = get lbl r
-            res = f Dict (symbolVal lbl) val b
-            pNext :: Proxy (RemoveAccessTo l (l := t ': lts))
-            pNext = Proxy
-        in recApply f r pNext res
-
--- | Machinery to implement equality
-class RecEq (rts :: [*]) (lts :: [*]) where
-    recEq :: Rec rts -> Rec rts -> Proxy lts -> Bool
-
-instance RecEq rts '[] where
-    recEq _ _ _ = True
-
-instance
-    ( RecEq rts (RemoveAccessTo l lts)
-    , Has l rts v
-    , Eq v
-    ) => RecEq rts (l := t ': lts) where
-    recEq r1 r2 (_ :: Proxy (l := t ': lts)) =
-       let lbl :: FldProxy l
-           lbl = FldProxy
-           val = get lbl r1
-           val2 = get lbl r2
-           res = val == val2
-           pNext :: Proxy (RemoveAccessTo l (l := t ': lts))
-           pNext = Proxy
-       in res && recEq r1 r2 pNext
+            res = f lbl val b
+        in recApply @rts @(RemoveAccessTo l lts) @c f r res
 
 type family RemoveAccessTo (l :: Symbol) (lts :: [*]) :: [*] where
     RemoveAccessTo l (l := t ': lts) = RemoveAccessTo l lts
     RemoveAccessTo q (l := t ': lts) = (l := t ': RemoveAccessTo l lts)
     RemoveAccessTo q '[] = '[]
+
+class UnsafeRecBuild (rts :: [*]) (lts :: [*]) c where
+    unsafeRecBuild :: (forall (l :: Symbol) a. (KnownSymbol l, c l a) => FldProxy l -> Proxy# a -> a) -> Rec lts
+
+instance ( RecSize rts ~ s, KnownNat s ) => UnsafeRecBuild rts '[] c where
+    unsafeRecBuild _ = unsafeRNil ( fromIntegral $ natVal' ( proxy# :: Proxy# s ) )
+
+instance ( UnsafeRecBuild rts lts c, RecSize lts ~ s, KnownNat s, KnownSymbol l, c l t )
+        => UnsafeRecBuild rts ( l := t ': lts ) c where
+    unsafeRecBuild f = unsafeRCons @l @t @lts @s ( lbl := f lbl ( proxy# :: Proxy#t ) ) ( unsafeRecBuild @rts @lts @c f )
+        where
+            lbl :: FldProxy l
+            lbl = FldProxy
+
+recBuild ::
+  forall c lts sortedLts.
+  ( sortedLts ~ Sort lts
+  , UnsafeRecBuild sortedLts sortedLts c
+  )
+  => (forall (l :: Symbol) a. (KnownSymbol l, c l a) => FldProxy l -> Proxy# a -> a) -> Rec (Sort lts)
+recBuild = unsafeRecBuild @sortedLts @sortedLts @c
+
 
 -- | Machinery to implement parseJSON
 class RecJsonParse (lts :: [*]) where
@@ -689,24 +704,6 @@ instance
            rest <- recJsonParse initSize obj
            (v :: t) <- obj .: T.pack (symbolVal lbl)
            pure $ unsafeRCons (lbl := v) rest
-
--- | Machinery for NFData
-class RecNfData (lts :: [*]) (rts :: [*]) where
-    recNfData :: Proxy lts -> Rec rts -> ()
-
-instance RecNfData '[] rts where
-    recNfData _ _ = ()
-
-instance
-    ( Has l rts v
-    , NFData v
-    , RecNfData (RemoveAccessTo l lts) rts
-    ) => RecNfData (l := t ': lts) rts where
-    recNfData (_ :: (Proxy (l := t ': lts))) r =
-        let !v = get (FldProxy :: FldProxy l) r
-            pNext :: Proxy (RemoveAccessTo l (l := t ': lts))
-            pNext = Proxy
-        in deepseq v (recNfData pNext r)
 
 -- | Conversion helper to bring a Haskell type to a record. Note that the
 -- native Haskell type must be an instance of 'Generic'
@@ -764,7 +761,7 @@ instance ToNative cs lts => ToNative (C1 m cs) lts where
     toNative' xs = M1 $ toNative' xs
 
 instance
-    (Has name lts t)
+    (Has lts name t)
     => ToNative (S1 ('MetaSel ('Just name) p s l) (Rec0 t)) lts
     where
     toNative' r =
@@ -792,7 +789,7 @@ toNative = to . toNative'
 
 -- | Like 'asks' for 'MonadReader', but you provide a record field you would like
 -- to read from your environment
-asksR :: (Has lbl lts v, MonadReader (Rec lts) m) => FldProxy lbl -> m v
+asksR :: (Has lts lbl v, MonadReader (Rec lts) m) => FldProxy lbl -> m v
 asksR f = asks (get f)
 {-# INLINE asksR #-}
 
@@ -804,17 +801,17 @@ asksRP p = asks (getPath p)
 
 -- | Like 'gets' for 'MonadState', but you provide a record field you would like
 -- to read from your environment
-getsR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> m v
+getsR :: (Has lts lbl v, S.MonadState (Rec lts) m) => FldProxy lbl -> m v
 getsR f = S.gets (get f)
 {-# INLINE getsR #-}
 
 -- | Similar to 'put' for 'MonadState', but you only set a single record field
-setsR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> v -> m ()
+setsR :: (Has lts lbl v, S.MonadState (Rec lts) m) => FldProxy lbl -> v -> m ()
 setsR f v = S.modify (set f v)
 {-# INLINE setsR #-}
 
 -- | Similar to 'modify' for 'MonadState', but you update a single record field
-modifiesR :: (Has lbl lts v, S.MonadState (Rec lts) m) => FldProxy lbl -> (v -> v) -> m ()
+modifiesR :: (Has lts lbl v, S.MonadState (Rec lts) m) => FldProxy lbl -> (v -> v) -> m ()
 modifiesR f go = S.modify (modify f go)
 {-# INLINE modifiesR #-}
 
@@ -837,7 +834,7 @@ type Lens s t a b = forall f. Functor f => (a -> f b) -> (s -> f t)
 
 -- | Convert a field label to a lens
 lens ::
-    Has l lts v => FldProxy l -> Lens (Rec lts) (Rec lts) v v
+    Has lts l v => FldProxy l -> Lens (Rec lts) (Rec lts) v v
 lens lbl f r =
     fmap (\v -> set lbl v r) (f (get lbl r))
 {-# INLINE lens #-}
