@@ -62,6 +62,7 @@ module SuperRecord
     , RecAll
     , KeyDoesNotExist
     , Sort
+    , ConstC, Tuple22C
       -- * Unsafe operations
     , unsafeRNil
     , unsafeRCons
