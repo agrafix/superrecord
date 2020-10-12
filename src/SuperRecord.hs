@@ -82,6 +82,7 @@ import GHC.Exts
 import GHC.TypeLits
 import qualified Control.Monad.State as S
 import qualified Data.Text as T
+import Data.Semigroup as Sem (Semigroup(..))
 
 #ifdef JS_RECORD
 import GHCJS.Marshal
@@ -149,12 +150,16 @@ instance (RecSize lts ~ s, KnownNat s, RecJsonParse lts) => FromJSON (Rec lts) w
 instance RecApply lts lts (ConstC NFData) => NFData (Rec lts) where
     rnf r = recApply @lts @lts @(ConstC NFData) (\_ !v b -> v `deepseq` b) r ()
 
-instance RecApply lts lts (Tuple22C (ConstC Semigroup) (Has lts)) => Semigroup (Rec lts) where
+instance RecApply lts lts (Tuple22C (ConstC Semigroup) (Has lts)) => Sem.Semigroup (Rec lts) where
     r1 <> r2 = recApply @lts @lts @(Tuple22C (ConstC Semigroup) (Has lts))
-      (\lbl v res -> modify lbl (<> v) res) r1 r2
+      (\lbl v res -> modify lbl (Sem.<> v) res) r1 r2
 
-instance (Semigroup (Rec lts), UnsafeRecBuild lts lts (ConstC Monoid)) => Monoid (Rec lts) where
+instance (Sem.Semigroup (Rec lts), UnsafeRecBuild lts lts (ConstC Monoid)) => Monoid (Rec lts) where
     mempty = unsafeRecBuild @lts @lts @(ConstC Monoid) (\ _ _ -> mempty)
+#if !(MIN_VERSION_base(4,11,0))
+    mappend = (Sem.<>)
+#endif
+
 
 -- Hack needed because $! doesn't have the same special treatment $ does to work with ST yet
 #ifndef JS_RECORD
