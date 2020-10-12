@@ -673,7 +673,11 @@ class UnsafeRecBuild (rts :: [*]) (lts :: [*]) c where
 instance ( RecSize rts ~ s, KnownNat s ) => UnsafeRecBuild rts '[] c where
     unsafeRecBuild _ = unsafeRNil ( fromIntegral $ natVal' ( proxy# :: Proxy# s ) )
 
-instance ( UnsafeRecBuild rts lts c, RecSize lts ~ s, KnownNat s, KnownSymbol l, c l t )
+instance ( UnsafeRecBuild rts lts c, RecSize lts ~ s, KnownNat s, KnownSymbol l, c l t
+#ifdef JS_RECORD
+         , ToJSVal t
+#endif
+         )
         => UnsafeRecBuild rts ( l := t ': lts ) c where
     unsafeRecBuild f = unsafeRCons @l @t @lts @s ( lbl := f lbl ( proxy# :: Proxy#t ) ) ( unsafeRecBuild @rts @lts @c f )
         where
