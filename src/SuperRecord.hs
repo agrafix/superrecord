@@ -51,7 +51,7 @@ module SuperRecord
       -- * Machinery
     , Rec
     , RecCopy
-    , RecTyIdxH
+    , RecTy, RecTyIdxH
     , showRec, RecKeys(..), recKeys
     , recToValue, recToEncoding
     , recJsonParser, RecJsonParse(..)
