@@ -63,6 +63,7 @@ module SuperRecord
     , KeyDoesNotExist
     , Sort
     , ConstC, Tuple22C
+    , TraversalC, traverseC
       -- * Unsafe operations
     , unsafeRNil
     , unsafeRCons
@@ -662,6 +663,43 @@ instance
             val = get lbl r
             res = f lbl val b
         in recApply @rts @(RemoveAccessTo l lts) @c f r res
+
+
+class ( KnownNat ( RecSize bs ) ) => TraversalCHelper (bs_acc ::[*]) (as :: [*]) (bs :: [*]) c where
+    traversalCHelper :: forall f. Applicative f => ( forall (l :: Symbol) a b. (KnownSymbol l, c l a b) => FldProxy l -> a -> f b ) -> Rec as -> f ( Rec bs_acc )
+
+instance ( RecSize bs ~ s, KnownNat s )
+       => TraversalCHelper '[] as bs c
+       where
+    traversalCHelper _ _ = pure $ unsafeRNil ( fromIntegral $ natVal' ( proxy# :: Proxy# s ) )
+
+instance ( KnownNat ( RecSize bs_acc )
+         , KnownSymbol l
+         , a ~ RecTy l as, Has as l a
+         , c l a b, TraversalCHelper bs_acc as bs c
+#ifdef JS_RECORD
+         , ToJSVal a, ToJSVal b
+#endif
+         )
+      => TraversalCHelper ( l := b ': bs_acc ) as bs c
+      where
+    traversalCHelper f as =
+        let lbl :: FldProxy l
+            lbl = FldProxy
+        in
+            ( \ b bs -> unsafeRCons @l @b @bs_acc ( lbl := b ) bs )
+               <$> f lbl ( get lbl as )
+               <*> traversalCHelper @bs_acc @as @bs @c f as
+
+class    TraversalCHelper bs as bs c => TraversalC c as bs where
+instance TraversalCHelper bs as bs c => TraversalC c as bs where
+
+-- | Constrained traversal of a record.
+traverseC ::
+  forall c f as bs. ( TraversalC c as bs, Applicative f ) => 
+  ( forall (l :: Symbol) a b. (KnownSymbol l, c l a b) => FldProxy l -> a -> f b ) -> Rec as -> f ( Rec bs )
+traverseC = traversalCHelper @bs @as @bs @c @f
+
 
 type family RemoveAccessTo (l :: Symbol) (lts :: [*]) :: [*] where
     RemoveAccessTo l (l := t ': lts) = RemoveAccessTo l lts
