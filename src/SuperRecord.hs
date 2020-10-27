@@ -55,7 +55,7 @@ module SuperRecord
     , showRec, RecKeys(..), recKeys
     , recToValue, recToEncoding
     , recJsonParser, RecJsonParse(..)
-    , UnsafeRecBuild(..), recBuild
+    , UnsafeRecBuild(..), recBuild, recBuildPure
     , RecVecIdxPos
     , RecSize, RemoveAccessTo
     , FldProxy(..), RecDeepTy
@@ -63,7 +63,7 @@ module SuperRecord
     , KeyDoesNotExist
     , Sort
     , ConstC, Tuple22C
-    , TraversalC, traverseC
+    , TraversalCHelper, TraversalC, traverseC
       -- * Unsafe operations
     , unsafeRNil
     , unsafeRCons
@@ -78,6 +78,7 @@ import Control.Monad.Reader
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Constraint
+import Data.Functor.Identity
 import Data.Proxy
 import GHC.Generics
 import GHC.Exts
@@ -157,7 +158,7 @@ instance RecApply lts lts (Tuple22C (ConstC Semigroup) (Has lts)) => Sem.Semigro
       (\lbl v res -> modify lbl (Sem.<> v) res) r1 r2
 
 instance (Sem.Semigroup (Rec lts), UnsafeRecBuild lts lts (ConstC Monoid)) => Monoid (Rec lts) where
-    mempty = unsafeRecBuild @lts @lts @(ConstC Monoid) (\ _ _ -> mempty)
+    mempty = runIdentity $ unsafeRecBuild @lts @lts @(ConstC Monoid) (\ _ _ -> Identity mempty)
 #if !(MIN_VERSION_base(4,11,0))
     mappend = (Sem.<>)
 #endif
@@ -707,10 +708,10 @@ type family RemoveAccessTo (l :: Symbol) (lts :: [*]) :: [*] where
     RemoveAccessTo q '[] = '[]
 
 class UnsafeRecBuild (rts :: [*]) (lts :: [*]) c where
-    unsafeRecBuild :: (forall (l :: Symbol) a. (KnownSymbol l, c l a) => FldProxy l -> Proxy# a -> a) -> Rec lts
+    unsafeRecBuild :: Applicative f => (forall (l :: Symbol) a. (KnownSymbol l, c l a) => FldProxy l -> Proxy# a -> f a) -> f ( Rec lts )
 
 instance ( RecSize rts ~ s, KnownNat s ) => UnsafeRecBuild rts '[] c where
-    unsafeRecBuild _ = unsafeRNil ( fromIntegral $ natVal' ( proxy# :: Proxy# s ) )
+    unsafeRecBuild _ = pure $ unsafeRNil ( fromIntegral $ natVal' ( proxy# :: Proxy# s ) )
 
 instance ( UnsafeRecBuild rts lts c, RecSize lts ~ s, KnownNat s, KnownSymbol l, c l t
 #ifdef JS_RECORD
@@ -718,18 +719,28 @@ instance ( UnsafeRecBuild rts lts c, RecSize lts ~ s, KnownNat s, KnownSymbol l,
 #endif
          )
         => UnsafeRecBuild rts ( l := t ': lts ) c where
-    unsafeRecBuild f = unsafeRCons @l @t @lts @s ( lbl := f lbl ( proxy# :: Proxy#t ) ) ( unsafeRecBuild @rts @lts @c f )
+    unsafeRecBuild f = unsafeRCons @l @t @lts @s
+                    <$> ( ( lbl := ) <$> f lbl ( proxy# :: Proxy#t ) )
+                    <*> ( unsafeRecBuild @rts @lts @c f )
         where
             lbl :: FldProxy l
             lbl = FldProxy
 
 recBuild ::
+  forall c f lts sortedLts.
+  ( sortedLts ~ Sort lts
+  , UnsafeRecBuild sortedLts sortedLts c
+  )
+  => Applicative f => (forall (l :: Symbol) a. (KnownSymbol l, c l a) => FldProxy l -> Proxy# a -> f a) -> f ( Rec (Sort lts) )
+recBuild = unsafeRecBuild @sortedLts @sortedLts @c
+
+recBuildPure ::
   forall c lts sortedLts.
   ( sortedLts ~ Sort lts
   , UnsafeRecBuild sortedLts sortedLts c
   )
   => (forall (l :: Symbol) a. (KnownSymbol l, c l a) => FldProxy l -> Proxy# a -> a) -> Rec (Sort lts)
-recBuild = unsafeRecBuild @sortedLts @sortedLts @c
+recBuildPure f = runIdentity $ recBuild @c @Identity @lts @sortedLts ( \ k v -> Identity ( f k v ) )
 
 
 -- | Machinery to implement parseJSON
