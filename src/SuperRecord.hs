@@ -64,6 +64,7 @@ module SuperRecord
     , Sort
     , ConstC, Tuple22C
     , TraversalCHelper, TraversalC, traverseC
+    , project, Inject, Lookup(..), inject
       -- * Unsafe operations
     , unsafeRNil
     , unsafeRCons
@@ -352,8 +353,9 @@ type family RecTyIdxH (i :: Nat) (l :: Symbol) (lts :: [*]) :: Nat where
           ':<>: 'Text m
         )
 
-type family RecTy (l :: Symbol) (lts :: [*]) :: k where
-    RecTy l (l := t ': lts) = t
+type family RecTy (l :: Symbol) (lts :: [*]) :: Maybe * where
+    RecTy l '[]             = 'Nothing
+    RecTy l (l := t ': lts) = 'Just t
     RecTy q (l := t ': lts) = RecTy q lts
 
 -- | Require a record to contain at least the listed labels
@@ -363,7 +365,7 @@ type family HasOf (req :: [*]) (lts :: [*]) :: Constraint where
 
 -- | Require a record to contain a label
 class
-   ( RecTy l lts ~ v
+   ( RecTy l lts ~ 'Just v
    , KnownNat (RecSize lts)
    , KnownNat (RecVecIdxPos l lts)
 #ifdef JS_RECORD
@@ -371,7 +373,7 @@ class
 #endif
    ) => Has lts l v
 instance
-   ( RecTy l lts ~ v
+   ( RecTy l lts ~ 'Just v
    , KnownNat (RecSize lts)
    , KnownNat (RecVecIdxPos l lts)
 #ifdef JS_RECORD
@@ -494,7 +496,7 @@ instance (Has lts l t, t ~ RecDeepTy (FldProxy l) lts) => RecApplyPath (FldProxy
 
 instance
     ( RecDeepTy (l :& more) lts ~ RecDeepTy more rts
-    , RecTy l lts ~ Rec rts
+    , RecTy l lts ~ 'Just ( Rec rts )
     , Has lts l v
     , v ~ Rec rts
     , RecApplyPath more rts
@@ -574,6 +576,38 @@ combine (Rec o1) (Rec o2) =
     -> Rec sortRes
 (++:) = combine
 {-# INLINE (++:) #-}
+
+-- | Project a record onto one with a subset of the fields, discarding the other fields.
+project :: forall big small. UnsafeRecBuild small small (Has big) => Rec big -> Rec small
+project big = runIdentity $ unsafeRecBuild @small @small @(Has big) (\ k _ -> Identity $ get k big)
+
+-- | Inject the fields of one record into another record.
+--
+--`inject rec1 rec2` adjusts `rec2` by setting the fields of `rec2` that also appear in `rec1`
+-- to have the values in `rec1`.
+--
+-- Does not require that the fields of `rec1` be a subset of the fields of `rec2`
+-- (the fields of `rec1` that do not appear in `rec2` are discarded).
+inject :: forall big small. TraversalC (Inject small) big big => Rec small -> Rec big -> Rec big
+inject small
+    = runIdentity
+    . traverseC @(Inject small) @Identity @big @big
+        (\ k a -> Identity $ lookupWithDefault k a small)
+
+class    (a ~ b, Lookup kvs k a (RecTy k kvs)) => Inject kvs k a b where
+instance (a ~ b, Lookup kvs k a (RecTy k kvs)) => Inject kvs k a b where
+
+class ( r ~ RecTy k kvs ) => Lookup (kvs :: [*]) (k :: Symbol) (a :: *) (r :: Maybe *) where
+    lookupWithDefault :: FldProxy k -> a -> Rec kvs -> a
+instance (RecTy k kvs ~ 'Nothing)
+      => Lookup kvs k a 'Nothing
+      where
+    lookupWithDefault _ a _ = a
+instance (Has kvs k a, RecTy k kvs ~ 'Just a)
+       => Lookup kvs k a ('Just a)
+       where
+    lookupWithDefault k _ r = get k r
+
 
 data RecFields (flds :: [Symbol]) where
     RFNil :: RecFields '[]
@@ -676,7 +710,7 @@ instance ( RecSize bs ~ s, KnownNat s )
 
 instance ( KnownNat ( RecSize bs_acc )
          , KnownSymbol l
-         , a ~ RecTy l as, Has as l a
+         , 'Just a ~ RecTy l as, Has as l a
          , c l a b, TraversalCHelper bs_acc as bs c
 #ifdef JS_RECORD
          , ToJSVal a, ToJSVal b
