@@ -64,6 +64,7 @@ module SuperRecord
     , Sort
     , ConstC, Tuple22C
     , TraversalCHelper, TraversalC, traverseC
+    , Intersect
     , project, Inject, Lookup(..), inject
       -- * Unsafe operations
     , unsafeRNil
@@ -362,6 +363,24 @@ type family RecTy (l :: Symbol) (lts :: [*]) :: Maybe * where
 type family HasOf (req :: [*]) (lts :: [*]) :: Constraint where
     HasOf (l := t ': req) lts = (Has lts l t, HasOf req lts)
     HasOf '[] lts = 'True ~ 'True
+
+-- | Intersect two sets of record fields.
+--
+-- Retains the order of fields in the *first* argument.
+-- Throw a type error if a label is associated with distinct types in each of the arguments.
+type family Intersect (as :: [*]) (bs :: [*]) :: [*] where
+    Intersect '[] _ = '[]
+    Intersect (k := a ': as) bs = IntersectHelper (RecTy k bs) k a as bs
+
+type family IntersectHelper (lk :: Maybe *) (k :: Symbol) (a :: *) (as :: [*]) (bs :: [*]) :: [*] where
+    IntersectHelper 'Nothing    _ _ as bs = Intersect as bs
+    IntersectHelper ( 'Just a ) k a as bs = ( k := a ) ': Intersect as bs
+    IntersectHelper ( 'Just b ) k a _  bs =
+        TypeError
+        ( 'Text "Conflicting types for label " ':<>: 'Text k
+        ':$$: 'Text "LHS type: " ':<>: 'ShowType a
+        ':$$: 'Text "RHS type: " ':<>: 'ShowType b
+        )
 
 -- | Require a record to contain a label
 class
