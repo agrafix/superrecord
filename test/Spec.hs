@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeApplications #-}
 module Main where
 
 import SuperRecord
@@ -15,6 +16,8 @@ import SuperRecord.Variant.Tagged
 import SuperRecord.Variant.Text
 
 import Control.Monad.Reader
+import Control.Monad.State (State, evalState)
+import qualified Control.Monad.State as State
 import Data.Aeson
 import Data.Aeson.Encoding
 import GHC.Generics (Generic)
@@ -86,6 +89,15 @@ bigRec =
   & #f9   := 9
   & #f10  := 10
   & rnil
+
+type NumFields = '[ "int" := Int, "double" := Double, "word" := Word, "float" := Float ]
+
+numRec :: Rec NumFields
+numRec = #int    := (-3)   `unsafeRCons`
+         #double := 7.5    `unsafeRCons`
+         #word   := 256    `unsafeRCons`
+         #float  := (-3/4) `unsafeRCons`
+         ( unsafeRNil 4 )
 
 main :: TestRecAppend => IO ()
 main =
@@ -358,3 +370,63 @@ recordTests =
            decode "{\"foo\": \"Hi\", \"int\": 213}" `shouldBe` Just r1
        it "reader works" $
            do runReaderT mtlAsk (#id := 123 & rnil) `shouldReturn` 123
+       it "recBuildPure works" $
+          ( recBuildPure @(ConstC Num) @NumFields ( \ _ _ -> 17 ) )
+            `shouldBe`
+          ( #int := 17 & #double := 17 & #word := 17 & #float := 17 & rnil
+          :: Record NumFields
+          )
+       it "recBuild works" $
+          ( ( `evalState` ( 0 :: Integer ) ) $
+             recBuild @(ConstC Num) @(State Integer) @NumFields
+               ( \ _ _ -> do { i <- State.get; State.put (i+1); pure (fromInteger $ 3 * i) } )
+          )
+            `shouldBe`
+          ( #double := 0 & #float := 3 & #int := 6 & #word := 9 & rnil :: Record NumFields )
+       it "unsafeRecBuild works" $
+          ( ( `evalState` ( 0 :: Integer ) ) $
+             unsafeRecBuild @NumFields @NumFields @(ConstC Num) @(State Integer)
+               ( \ _ _ -> do { i <- State.get; State.put (i+1); pure (fromInteger $ 3 * i) } )
+          )
+            `shouldBe`
+          ( #int    := 0 `unsafeRCons`
+            #double := 3 `unsafeRCons`
+            #word   := 6 `unsafeRCons`
+            #float  := 9 `unsafeRCons`
+            ( unsafeRNil 4 ) :: Rec NumFields
+          )
+       it "traverse works" $
+          ( ( `evalState` ( 0 :: Integer ) ) $
+            traverseC @(Const2C' Num) @(State Integer) @NumFields
+              ( \ _ a -> do { i <- State.get; State.put (i+1); pure (1 + a * fromInteger i) } )
+              numRec
+          )
+            `shouldBe`
+          ( #int    := 1      `unsafeRCons`
+            #double := 8.5    `unsafeRCons`
+            #word   := 513    `unsafeRCons`
+            #float  := (-5/4) `unsafeRCons`
+            ( unsafeRNil 4 ) :: Rec NumFields
+          )
+       it "project works" $
+          ( project @_ @'[ "f3" := Int, "f5" := Int ] bigRec )
+            `shouldBe`
+          ( #f3 := 3 & #f5 := 5 & rnil )
+       it "inject works" $
+          ( inject
+              ( #f3 := 33 & #f5 := 55 & rnil :: Record '[ "f3" := Int, "f5" := Int ] )
+              bigRec
+          )
+            `shouldBe`
+          ( #f1   := 1
+          & #f2   := 2
+          & #f3   := 33
+          & #f4   := 4
+          & #f5   := 55
+          & #f6   := 6
+          & #f7   := 7
+          & #f8   := 8
+          & #f9   := 9
+          & #f10  := 10
+          & rnil
+          )

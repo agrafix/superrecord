@@ -62,7 +62,7 @@ module SuperRecord
     , RecAll
     , KeyDoesNotExist
     , Sort
-    , ConstC, Tuple22C
+    , ConstC, Const2C, Const2C', Tuple22C, Tuple222C
     , TraversalCHelper, TraversalC, traverseC
     , Intersect
     , project, Inject, Lookup(..), inject
@@ -135,6 +135,12 @@ class    c a => ConstC c k a where
 instance c a => ConstC c k a where
 class    ( c1 k a, c2 k a ) => Tuple22C c1 c2 k a
 instance ( c1 k a, c2 k a ) => Tuple22C c1 c2 k a
+class    ( c a b ) => Const2C c k a b where
+instance ( c a b ) => Const2C c k a b where
+class    ( c a, a ~ b ) => Const2C' c k a b where
+instance ( c a, a ~ b ) => Const2C' c k a b where
+class    ( c1 k a b, c2 k a b ) => Tuple222C c1 c2 k a b
+instance ( c1 k a b, c2 k a b ) => Tuple222C c1 c2 k a b
 
 instance (RecApply lts lts (ConstC Show)) => Show (Rec lts) where
     show = show . showRec
@@ -233,6 +239,8 @@ rcons (lbl := val) (Rec obj) =
 #endif
 {-# INLINE rcons #-}
 
+infixr 5 `rcons`
+
 class RecCopy (pts :: [*]) (lts :: [*]) (rts :: [*]) where
     recCopyInto ::
         Proxy pts -> Rec lts -> Proxy rts
@@ -291,6 +299,8 @@ unsafeRCons (lbl := val) (Rec obj) =
        pure obj
 #endif
 {-# INLINE unsafeRCons #-}
+
+infixr 5 `unsafeRCons`
 
 -- | Alias for 'rcons'
 (&) ::
@@ -749,6 +759,8 @@ class    TraversalCHelper bs as bs c => TraversalC c as bs where
 instance TraversalCHelper bs as bs c => TraversalC c as bs where
 
 -- | Constrained traversal of a record.
+--
+-- Effects are performed in the same order as the fields.
 traverseC ::
   forall c f as bs. ( TraversalC c as bs, Applicative f ) => 
   ( forall (l :: Symbol) a b. (KnownSymbol l, c l a b) => FldProxy l -> a -> f b ) -> Rec as -> f ( Rec bs )
@@ -761,6 +773,9 @@ type family RemoveAccessTo (l :: Symbol) (lts :: [*]) :: [*] where
     RemoveAccessTo q '[] = '[]
 
 class UnsafeRecBuild (rts :: [*]) (lts :: [*]) c where
+    -- | Build a record from a constrained applicative function.
+    --
+    -- Effects are performed in order of the given (potentially unsorted) fields.
     unsafeRecBuild :: Applicative f => (forall (l :: Symbol) a. (KnownSymbol l, c l a) => FldProxy l -> Proxy# a -> f a) -> f ( Rec lts )
 
 instance ( RecSize rts ~ s, KnownNat s ) => UnsafeRecBuild rts '[] c where
@@ -779,6 +794,9 @@ instance ( UnsafeRecBuild rts lts c, RecSize lts ~ s, KnownNat s, KnownSymbol l,
             lbl :: FldProxy l
             lbl = FldProxy
 
+-- | Build a record from a constrained applicative function.
+--
+-- Effects are performed in order of the sorted fields.
 recBuild ::
   forall c f lts sortedLts.
   ( sortedLts ~ Sort lts
@@ -787,6 +805,9 @@ recBuild ::
   => Applicative f => (forall (l :: Symbol) a. (KnownSymbol l, c l a) => FldProxy l -> Proxy# a -> f a) -> f ( Rec (Sort lts) )
 recBuild = unsafeRecBuild @sortedLts @sortedLts @c
 
+-- | Build a record from a constrained pure function.
+--
+-- Effects are performed in order of the sorted fields.
 recBuildPure ::
   forall c lts sortedLts.
   ( sortedLts ~ Sort lts
