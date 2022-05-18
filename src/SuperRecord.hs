@@ -86,7 +86,6 @@ import GHC.Generics
 import GHC.Exts
 import GHC.TypeLits
 import qualified Control.Monad.State as S
-import qualified Data.Text as T
 import Data.Semigroup as Sem (Semigroup(..))
 
 #ifdef JS_RECORD
@@ -97,6 +96,22 @@ import qualified JavaScript.Object.Internal as JS
 #else
 import GHC.ST ( ST(..) , runST)
 #endif
+
+#if MIN_VERSION_aeson(2, 0, 0)
+import qualified Data.Aeson.Key as Key
+#else
+import qualified Data.Text as T
+#endif
+
+#if MIN_VERSION_aeson(2, 0, 0)
+jsonKey :: String -> Key.Key
+jsonKey = Key.fromString
+#else
+jsonKey :: String -> Text
+jsonKey = T.pack
+#endif
+{-# INLINE jsonKey #-}
+
 
 -- | Sort a list of fields using merge sort, alias to 'FieldListSort'
 type Sort xs = FieldListSort xs
@@ -696,10 +711,10 @@ showRec :: forall lts. (RecApply lts lts (ConstC Show)) => Rec lts -> [(String, 
 showRec = reflectRec @(ConstC Show) (\(_ :: FldProxy lbl) v -> (symbolVal' (proxy# :: Proxy# lbl), show v))
 
 recToValue :: forall lts. (RecApply lts lts (ConstC ToJSON)) => Rec lts -> Value
-recToValue r = object $ reflectRec @(ConstC ToJSON) (\(_ :: FldProxy lbl) v -> (T.pack $ symbolVal' (proxy# :: Proxy# lbl), toJSON v)) r
+recToValue r = object $ reflectRec @(ConstC ToJSON) (\(_ :: FldProxy lbl) v -> (jsonKey $ symbolVal' (proxy# :: Proxy# lbl), toJSON v)) r
 
 recToEncoding :: forall lts. (RecApply lts lts (ConstC ToJSON)) => Rec lts -> Encoding
-recToEncoding r = pairs $ mconcat $ reflectRec @(ConstC ToJSON) (\(_ :: FldProxy lbl) v -> (T.pack (symbolVal' (proxy# :: Proxy# lbl)) .= v)) r
+recToEncoding r = pairs $ mconcat $ reflectRec @(ConstC ToJSON) (\(_ :: FldProxy lbl) v -> (jsonKey (symbolVal' (proxy# :: Proxy# lbl))) .= v) r
 
 recJsonParser :: forall lts s. (RecSize lts ~ s, KnownNat s, RecJsonParse lts) => Value -> Parser (Rec lts)
 recJsonParser =
@@ -762,7 +777,7 @@ instance TraversalCHelper bs as bs c => TraversalC c as bs where
 --
 -- Effects are performed in the same order as the fields.
 traverseC ::
-  forall c f as bs. ( TraversalC c as bs, Applicative f ) => 
+  forall c f as bs. ( TraversalC c as bs, Applicative f ) =>
   ( forall (l :: Symbol) a b. (KnownSymbol l, c l a b) => FldProxy l -> a -> f b ) -> Rec as -> f ( Rec bs )
 traverseC = traversalCHelper @bs @as @bs @c @f
 
@@ -835,7 +850,7 @@ instance
         do let lbl :: FldProxy l
                lbl = FldProxy
            rest <- recJsonParse initSize obj
-           (v :: t) <- obj .: T.pack (symbolVal lbl)
+           (v :: t) <- obj .: jsonKey (symbolVal lbl)
            pure $ unsafeRCons (lbl := v) rest
 
 -- | Conversion helper to bring a Haskell type to a record. Note that the
