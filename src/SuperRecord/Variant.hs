@@ -20,7 +20,7 @@ where
 import Control.Applicative
 import Control.DeepSeq
 import Data.Aeson
-import Data.Aeson.Types (Parser)
+import Data.Aeson.Types (Parser, parseFail)
 import Data.Maybe
 import Data.Proxy
 import GHC.Base (Any)
@@ -53,9 +53,8 @@ instance (ToJSON t, ToJSON (Variant ts)) => ToJSON (Variant (t ': ts)) where
         in fromMaybe (toJSON $ shrinkVariant v1) $ toJSON <$> w1
 
 instance FromJSON (Variant '[]) where
-    parseJSON r =
-        do () <- parseJSON r
-           pure emptyVariant
+    parseJSON _ =
+        parseFail "There is no JSON value devoid of a value, so no way to represent an emptyVariant"
 
 instance ( FromJSON t, FromJSON (Variant ts)
          ) => FromJSON (Variant (t ': ts)) where

@@ -19,7 +19,7 @@ import SuperRecord.Variant
 
 import Control.Applicative
 import Data.Aeson
-import Data.Aeson.Types (Parser)
+import Data.Aeson.Types (Parser, parseFail)
 import Data.Maybe
 import GHC.TypeLits
 import qualified Data.Text as T
@@ -47,9 +47,8 @@ instance (KnownSymbol lbl, ToJSON t, ToJSON (JsonTaggedVariant ts)) => ToJSON (J
            in val
 
 instance FromJSON (JsonTaggedVariant '[]) where
-    parseJSON r =
-        do () <- parseJSON r
-           pure $ JsonTaggedVariant emptyVariant
+    parseJSON _ =
+        parseFail "There is no JSON value devoid of a value, so no way to represent an emptyVariant"
 
 instance ( FromJSON t, FromJSON (JsonTaggedVariant ts)
          , KnownSymbol lbl
