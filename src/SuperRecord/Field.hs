@@ -29,8 +29,12 @@ instance (Ord value) => Ord (label := value) where
 
 instance (Show t) =>
          Show (l := t) where
-  showsPrec p (l := t) =
-      showParen (p > 10) (showString ("#" ++ symbolVal l ++ " := " ++ show t))
+  showsPrec d (l := t) =
+      showParen (d > labelPrec) $
+        showString ("#" ++ symbolVal l ++ " := ")
+        . showsPrec (labelPrec+1) t
+    where
+      labelPrec = 6
 
 -- | A proxy witness for a label. Very similar to 'Proxy', but needed to implement
 -- a non-orphan 'IsLabel' instance

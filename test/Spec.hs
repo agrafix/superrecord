@@ -351,7 +351,7 @@ recordTests =
            do let vals = showRec r1
               vals `shouldBe` [("foo", "\"Hi\""), ("int", "213")]
        it "show works" $
-           show r1 `shouldBe` "[(\"foo\",\"\\\"Hi\\\"\"),(\"int\",\"213\")]"
+           show r1 `shouldBe` "[#foo := \"Hi\",#int := 213]"
        it "equality works" $
            do r1 == r1 `shouldBe` True
               r1 == set #foo "Hai" r1 `shouldBe` False

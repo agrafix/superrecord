@@ -1,5 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -20,16 +21,17 @@ where
 import Control.Applicative
 import Control.DeepSeq
 import Data.Aeson
-import Data.Aeson.Types (Parser)
+import Data.Aeson.Types (Parser, parseFail)
 import Data.Maybe
 import Data.Proxy
+import Data.Kind (Type)
 import GHC.Base (Any)
 import GHC.TypeLits
 import Unsafe.Coerce
 
 -- | A variant is used to express that a values type is of any of
 -- the types tracked in the type level list.
-data Variant (opts :: [*])
+data Variant (opts :: [Type])
     = Variant {-# UNPACK #-} !Word Any
 
 type role Variant representational
@@ -53,9 +55,8 @@ instance (ToJSON t, ToJSON (Variant ts)) => ToJSON (Variant (t ': ts)) where
         in fromMaybe (toJSON $ shrinkVariant v1) $ toJSON <$> w1
 
 instance FromJSON (Variant '[]) where
-    parseJSON r =
-        do () <- parseJSON r
-           pure emptyVariant
+    parseJSON _ =
+        parseFail "There is no JSON value devoid of a value, so no way to represent an emptyVariant"
 
 instance ( FromJSON t, FromJSON (Variant ts)
          ) => FromJSON (Variant (t ': ts)) where

@@ -1,5 +1,7 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -19,10 +21,24 @@ import SuperRecord.Variant
 
 import Control.Applicative
 import Data.Aeson
-import Data.Aeson.Types (Parser)
+import Data.Aeson.Types (Parser, parseFail)
 import Data.Maybe
 import GHC.TypeLits
+
+#if MIN_VERSION_aeson(2, 0, 0)
+import qualified Data.Aeson.Key as Key
+#else
 import qualified Data.Text as T
+#endif
+
+#if MIN_VERSION_aeson(2, 0, 0)
+jsonKey :: String -> Key.Key
+jsonKey = Key.fromString
+#else
+jsonKey :: String -> T.Text
+jsonKey = T.pack
+#endif
+{-# INLINE jsonKey #-}
 
 -- | Just a type alias vor 'Variant'
 type TaggedVariant opts = Variant opts
@@ -40,22 +56,21 @@ instance (KnownSymbol lbl, ToJSON t, ToJSON (JsonTaggedVariant ts)) => ToJSON (J
     toJSON (JsonTaggedVariant v1) =
         let w1 :: Maybe t
             w1 = fromTaggedVariant (FldProxy :: FldProxy lbl) v1
-            tag = T.pack $ symbolVal (FldProxy :: FldProxy lbl)
+            tag = jsonKey $ symbolVal (FldProxy :: FldProxy lbl)
         in let val =
                    fromMaybe (toJSON $ JsonTaggedVariant $ shrinkVariant v1) $
                    (\x -> object [tag .= x]) <$> w1
            in val
 
 instance FromJSON (JsonTaggedVariant '[]) where
-    parseJSON r =
-        do () <- parseJSON r
-           pure $ JsonTaggedVariant emptyVariant
+    parseJSON _ =
+        parseFail "There is no JSON value devoid of a value, so no way to represent an emptyVariant"
 
 instance ( FromJSON t, FromJSON (JsonTaggedVariant ts)
          , KnownSymbol lbl
          ) => FromJSON (JsonTaggedVariant (lbl := t ': ts)) where
     parseJSON r =
-        do let tag = T.pack $ symbolVal (FldProxy :: FldProxy lbl)
+        do let tag = jsonKey $ symbolVal (FldProxy :: FldProxy lbl)
                myParser :: Parser t
                myParser = withObject ("Tagged " ++ show tag) (\o -> o .: tag) r
                myPackedParser :: Parser (JsonTaggedVariant (lbl := t ': ts))
