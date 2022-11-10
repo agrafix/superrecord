@@ -101,6 +101,7 @@ import Data.Kind (Type)
 
 #if MIN_VERSION_aeson(2, 0, 0)
 import qualified Data.Aeson.Key as Key
+import Text.Show (showListWith)
 #else
 import qualified Data.Text as T
 #endif
@@ -160,7 +161,7 @@ class    ( c1 k a b, c2 k a b ) => Tuple222C c1 c2 k a b
 instance ( c1 k a b, c2 k a b ) => Tuple222C c1 c2 k a b
 
 instance (RecApply lts lts (ConstC Show)) => Show (Rec lts) where
-    show = show . showRec
+    showsPrec = showsPrecRec
 
 instance RecApply lts lts (Tuple22C (ConstC Eq) (Has lts)) => Eq (Rec lts) where
     r1 == r2 = recApply @lts @lts @(Tuple22C (ConstC Eq) (Has lts)) ( \lbl v b -> get lbl r2 == v && b ) r1 True
@@ -711,6 +712,13 @@ reflectRecFold f r =
 -- | Convert all elements of a record to a 'String'
 showRec :: forall lts. (RecApply lts lts (ConstC Show)) => Rec lts -> [(String, String)]
 showRec = reflectRec @(ConstC Show) (\(_ :: FldProxy lbl) v -> (symbolVal' (proxy# :: Proxy# lbl), show v))
+
+showsPrecRec :: forall lts. (RecApply lts lts (ConstC Show)) => Int -> Rec lts -> ShowS
+showsPrecRec d r =
+    showListWith id $
+        reflectRec
+        @(ConstC Show) (\(lbl :: FldProxy lbl) v -> showsPrec (d+1) (lbl := v))
+        r
 
 recToValue :: forall lts. (RecApply lts lts (ConstC ToJSON)) => Rec lts -> Value
 recToValue r = object $ reflectRec @(ConstC ToJSON) (\(_ :: FldProxy lbl) v -> (jsonKey $ symbolVal' (proxy# :: Proxy# lbl), toJSON v)) r
