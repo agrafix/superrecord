@@ -23,6 +23,7 @@ import Data.Aeson.Encoding
 import GHC.Generics (Generic)
 import Test.Hspec
 import qualified Data.Text as T
+import Data.Functor ((<&>))
 
 data V1
 data V2
@@ -412,6 +413,16 @@ recordTests =
           ( project @_ @'[ "f3" := Int, "f5" := Int ] bigRec )
             `shouldBe`
           ( #f3 := 3 & #f5 := 5 & rnil )
+
+       it "projecting a list works ( https://github.com/agrafix/superrecord/issues/38 )" $ do
+          recs <- twoRecordsFromJson
+          (     recs
+            <&> project @_ @'[ "f3" := Int, "f10" := Int ]
+            <&> get #f3
+           )
+            `shouldBe`
+            [3, 8]
+
        it "inject works" $
           ( inject
               ( #f3 := 33 & #f5 := 55 & rnil :: Record '[ "f3" := Int, "f5" := Int ] )
@@ -430,3 +441,11 @@ recordTests =
           & #f10  := 10
           & rnil
           )
+
+{-# NOINLINE twoRecordsFromJson #-}
+twoRecordsFromJson :: IO [Record BigFieldList]
+twoRecordsFromJson = do
+  let Just recs = decode @[Record BigFieldList] "[{ \"f1\": 1, \"f2\": 2, \"f3\": 3, \"f4\": 4, \"f5\": 5, \"f6\": 6, \"f7\": 7, \"f8\": 8, \"f9\": 9, \"f10\": 10}, { \"f1\": 10, \"f2\": 9, \"f3\": 8, \"f4\": 7, \"f5\": 6, \"f6\": 5, \"f7\": 4, \"f8\": 3, \"f9\": 2, \"f10\": 1}]"
+  -- print a field in order to avoid inlining
+  print (map (get #f10) recs)
+  pure recs
