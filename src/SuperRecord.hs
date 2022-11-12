@@ -86,7 +86,6 @@ import GHC.Generics
 import GHC.Exts
 import GHC.TypeLits
 import qualified Control.Monad.State as S
-import qualified Data.Text as T
 import Data.Semigroup as Sem (Semigroup(..))
 
 #ifdef JS_RECORD
@@ -98,6 +97,25 @@ import qualified JavaScript.Object.Internal as JS
 import GHC.ST ( ST(..) , runST)
 #endif
 
+import Data.Kind (Type)
+
+#if MIN_VERSION_aeson(2, 0, 0)
+import qualified Data.Aeson.Key as Key
+import Text.Show (showListWith)
+#else
+import qualified Data.Text as T
+#endif
+
+#if MIN_VERSION_aeson(2, 0, 0)
+jsonKey :: String -> Key.Key
+jsonKey = Key.fromString
+#else
+jsonKey :: String -> T.Text
+jsonKey = T.pack
+#endif
+{-# INLINE jsonKey #-}
+
+
 -- | Sort a list of fields using merge sort, alias to 'FieldListSort'
 type Sort xs = FieldListSort xs
 
@@ -108,7 +126,7 @@ type Record lts = Rec (Sort lts)
 -- | Internal record type. When manually writing an explicit type signature for
 -- a record, use 'Record' instead. For abstract type signatures 'Rec' will work
 -- well.
-data Rec (lts :: [*])
+data Rec (lts :: [Type])
    = Rec
    {
 #ifndef JS_RECORD
@@ -143,7 +161,7 @@ class    ( c1 k a b, c2 k a b ) => Tuple222C c1 c2 k a b
 instance ( c1 k a b, c2 k a b ) => Tuple222C c1 c2 k a b
 
 instance (RecApply lts lts (ConstC Show)) => Show (Rec lts) where
-    show = show . showRec
+    showsPrec = showsPrecRec
 
 instance RecApply lts lts (Tuple22C (ConstC Eq) (Has lts)) => Eq (Rec lts) where
     r1 == r2 = recApply @lts @lts @(Tuple22C (ConstC Eq) (Has lts)) ( \lbl v b -> get lbl r2 == v && b ) r1 True
@@ -241,7 +259,7 @@ rcons (lbl := val) (Rec obj) =
 
 infixr 5 `rcons`
 
-class RecCopy (pts :: [*]) (lts :: [*]) (rts :: [*]) where
+class RecCopy (pts :: [Type]) (lts :: [Type]) (rts :: [Type]) where
     recCopyInto ::
         Proxy pts -> Rec lts -> Proxy rts
         -> SmallMutableArray# s Any
@@ -325,7 +343,7 @@ type family RecAll (c :: u -> Constraint) (rs :: [u]) :: Constraint where
   RecAll c '[] = ()
   RecAll c (r ': rs) = (c r, RecAll c rs)
 
-type family KeyDoesNotExist (l :: Symbol) (lts :: [*]) :: Constraint where
+type family KeyDoesNotExist (l :: Symbol) (lts :: [Type]) :: Constraint where
     KeyDoesNotExist l '[] = 'True ~ 'True
     KeyDoesNotExist l (l := t ': lts) =
         TypeError
@@ -335,27 +353,27 @@ type family KeyDoesNotExist (l :: Symbol) (lts :: [*]) :: Constraint where
 
 type RecAppend lhs rhs = RecAppendH lhs rhs rhs '[]
 
-type family ListConcat (xs :: [*]) (ys :: [*]) :: [*] where
+type family ListConcat (xs :: [Type]) (ys :: [Type]) :: [Type] where
     ListConcat '[] ys = ys
     ListConcat xs '[] = xs
     ListConcat (x ': xs) ys = x ': (ListConcat xs ys)
 
-type family ListReverse (xs :: [*]) :: [*] where
+type family ListReverse (xs :: [Type]) :: [Type] where
     ListReverse (x ': xs) = ListConcat (ListReverse xs) '[x]
     ListReverse '[] = '[]
 
-type family RecAppendH (lhs ::[*]) (rhs :: [*]) (rhsall :: [*]) (accum :: [*]) :: [*] where
+type family RecAppendH (lhs ::[Type]) (rhs :: [Type]) (rhsall :: [Type]) (accum :: [Type]) :: [Type] where
     RecAppendH (l := t ': lhs) (m := u ': rhs) rhsall acc = RecAppendH (l := t ': lhs) rhs rhsall acc
     RecAppendH (l := t ': lhs) '[] rhsall acc = RecAppendH lhs rhsall rhsall (l := t ': acc)
     RecAppendH '[] rhs rhsall acc = ListConcat (ListReverse acc) rhsall
 
-type family RecSize (lts :: [*]) :: Nat where
+type family RecSize (lts :: [Type]) :: Nat where
     RecSize '[] = 0
     RecSize (l := t ': lts) = 1 + RecSize lts
 
 type RecVecIdxPos l lts = RecSize lts - RecTyIdxH 0 l lts - 1
 
-type family RecTyIdxH (i :: Nat) (l :: Symbol) (lts :: [*]) :: Nat where
+type family RecTyIdxH (i :: Nat) (l :: Symbol) (lts :: [Type]) :: Nat where
     RecTyIdxH idx l (l := t ': lts) = idx
     RecTyIdxH idx m (l := t ': lts) = RecTyIdxH (1 + idx) m lts
     RecTyIdxH idx m '[] =
@@ -364,13 +382,13 @@ type family RecTyIdxH (i :: Nat) (l :: Symbol) (lts :: [*]) :: Nat where
           ':<>: 'Text m
         )
 
-type family RecTy (l :: Symbol) (lts :: [*]) :: Maybe * where
+type family RecTy (l :: Symbol) (lts :: [Type]) :: Maybe Type where
     RecTy l '[]             = 'Nothing
     RecTy l (l := t ': lts) = 'Just t
     RecTy q (l := t ': lts) = RecTy q lts
 
 -- | Require a record to contain at least the listed labels
-type family HasOf (req :: [*]) (lts :: [*]) :: Constraint where
+type family HasOf (req :: [Type]) (lts :: [Type]) :: Constraint where
     HasOf (l := t ': req) lts = (Has lts l t, HasOf req lts)
     HasOf '[] lts = 'True ~ 'True
 
@@ -378,11 +396,11 @@ type family HasOf (req :: [*]) (lts :: [*]) :: Constraint where
 --
 -- Retains the order of fields in the *first* argument.
 -- Throw a type error if a label is associated with distinct types in each of the arguments.
-type family Intersect (as :: [*]) (bs :: [*]) :: [*] where
+type family Intersect (as :: [Type]) (bs :: [Type]) :: [Type] where
     Intersect '[] _ = '[]
     Intersect (k := a ': as) bs = IntersectHelper (RecTy k bs) k a as bs
 
-type family IntersectHelper (lk :: Maybe *) (k :: Symbol) (a :: *) (as :: [*]) (bs :: [*]) :: [*] where
+type family IntersectHelper (lk :: Maybe Type) (k :: Symbol) (a :: Type) (as :: [Type]) (bs :: [Type]) :: [Type] where
     IntersectHelper 'Nothing    _ _ as bs = Intersect as bs
     IntersectHelper ( 'Just a ) k a as bs = ( k := a ) ': Intersect as bs
     IntersectHelper ( 'Just b ) k a _  bs =
@@ -501,7 +519,7 @@ infixr 8 &:-
 fld :: FldProxy l -> FldProxy l
 fld = id
 
-type family RecDeepTy (ps :: r) (lts :: [*]) :: * where
+type family RecDeepTy (ps :: r) (lts :: [Type]) :: Type where
     RecDeepTy (l :& more) (l := Rec t ': lts) = RecDeepTy more t
     RecDeepTy (l :& more) (l := t ': lts) = t
     RecDeepTy (l :& more) (q := t ': lts) = RecDeepTy (l :& more) lts
@@ -626,7 +644,7 @@ inject small
 class    (a ~ b, Lookup kvs k a (RecTy k kvs)) => Inject kvs k a b where
 instance (a ~ b, Lookup kvs k a (RecTy k kvs)) => Inject kvs k a b where
 
-class ( r ~ RecTy k kvs ) => Lookup (kvs :: [*]) (k :: Symbol) (a :: *) (r :: Maybe *) where
+class ( r ~ RecTy k kvs ) => Lookup (kvs :: [Type]) (k :: Symbol) (a :: Type) (r :: Maybe Type) where
     lookupWithDefault :: FldProxy k -> a -> Rec kvs -> a
 instance (RecTy k kvs ~ 'Nothing)
       => Lookup kvs k a 'Nothing
@@ -642,7 +660,7 @@ data RecFields (flds :: [Symbol]) where
     RFNil :: RecFields '[]
     RFCons :: KnownSymbol f => FldProxy f -> RecFields xs -> RecFields (f ': xs)
 
-recKeys :: forall t (lts :: [*]). RecKeys lts => t lts -> [String]
+recKeys :: forall t (lts :: [Type]). RecKeys lts => t lts -> [String]
 recKeys = recKeys' . recFields
 
 recKeys' :: RecFields lts -> [String]
@@ -652,7 +670,7 @@ recKeys' x =
       RFCons q qs -> symbolVal q : recKeys' qs
 
 -- | Get keys of a record on value and type level
-class RecKeys (lts :: [*]) where
+class RecKeys (lts :: [Type]) where
     type RecKeysT lts :: [Symbol]
     recFields :: t lts -> RecFields (RecKeysT lts)
 
@@ -695,11 +713,18 @@ reflectRecFold f r =
 showRec :: forall lts. (RecApply lts lts (ConstC Show)) => Rec lts -> [(String, String)]
 showRec = reflectRec @(ConstC Show) (\(_ :: FldProxy lbl) v -> (symbolVal' (proxy# :: Proxy# lbl), show v))
 
+showsPrecRec :: forall lts. (RecApply lts lts (ConstC Show)) => Int -> Rec lts -> ShowS
+showsPrecRec d r =
+    showListWith id $
+        reflectRec
+        @(ConstC Show) (\(lbl :: FldProxy lbl) v -> showsPrec (d+1) (lbl := v))
+        r
+
 recToValue :: forall lts. (RecApply lts lts (ConstC ToJSON)) => Rec lts -> Value
-recToValue r = object $ reflectRec @(ConstC ToJSON) (\(_ :: FldProxy lbl) v -> (T.pack $ symbolVal' (proxy# :: Proxy# lbl), toJSON v)) r
+recToValue r = object $ reflectRec @(ConstC ToJSON) (\(_ :: FldProxy lbl) v -> (jsonKey $ symbolVal' (proxy# :: Proxy# lbl), toJSON v)) r
 
 recToEncoding :: forall lts. (RecApply lts lts (ConstC ToJSON)) => Rec lts -> Encoding
-recToEncoding r = pairs $ mconcat $ reflectRec @(ConstC ToJSON) (\(_ :: FldProxy lbl) v -> (T.pack (symbolVal' (proxy# :: Proxy# lbl)) .= v)) r
+recToEncoding r = pairs $ mconcat $ reflectRec @(ConstC ToJSON) (\(_ :: FldProxy lbl) v -> (jsonKey (symbolVal' (proxy# :: Proxy# lbl))) .= v) r
 
 recJsonParser :: forall lts s. (RecSize lts ~ s, KnownNat s, RecJsonParse lts) => Value -> Parser (Rec lts)
 recJsonParser =
@@ -709,7 +734,7 @@ recJsonParser =
         initSize = fromIntegral $ natVal' (proxy# :: Proxy# s)
 
 -- | Machinery needed to implement 'reflectRec'
-class RecApply (rts :: [*]) (lts :: [*]) c where
+class RecApply (rts :: [Type]) (lts :: [Type]) c where
     recApply :: (forall (l :: Symbol) a. (KnownSymbol l, c l a) => FldProxy l -> a -> b -> b) -> Rec rts -> b -> b
 
 instance RecApply rts '[] c where
@@ -729,7 +754,7 @@ instance
         in recApply @rts @(RemoveAccessTo l lts) @c f r res
 
 
-class ( KnownNat ( RecSize bs ) ) => TraversalCHelper (bs_acc ::[*]) (as :: [*]) (bs :: [*]) c where
+class ( KnownNat ( RecSize bs ) ) => TraversalCHelper (bs_acc ::[Type]) (as :: [Type]) (bs :: [Type]) c where
     traversalCHelper :: forall f. Applicative f => ( forall (l :: Symbol) a b. (KnownSymbol l, c l a b) => FldProxy l -> a -> f b ) -> Rec as -> f ( Rec bs_acc )
 
 instance ( RecSize bs ~ s, KnownNat s )
@@ -762,17 +787,17 @@ instance TraversalCHelper bs as bs c => TraversalC c as bs where
 --
 -- Effects are performed in the same order as the fields.
 traverseC ::
-  forall c f as bs. ( TraversalC c as bs, Applicative f ) => 
+  forall c f as bs. ( TraversalC c as bs, Applicative f ) =>
   ( forall (l :: Symbol) a b. (KnownSymbol l, c l a b) => FldProxy l -> a -> f b ) -> Rec as -> f ( Rec bs )
 traverseC = traversalCHelper @bs @as @bs @c @f
 
 
-type family RemoveAccessTo (l :: Symbol) (lts :: [*]) :: [*] where
+type family RemoveAccessTo (l :: Symbol) (lts :: [Type]) :: [Type] where
     RemoveAccessTo l (l := t ': lts) = RemoveAccessTo l lts
     RemoveAccessTo q (l := t ': lts) = (l := t ': RemoveAccessTo l lts)
     RemoveAccessTo q '[] = '[]
 
-class UnsafeRecBuild (rts :: [*]) (lts :: [*]) c where
+class UnsafeRecBuild (rts :: [Type]) (lts :: [Type]) c where
     -- | Build a record from a constrained applicative function.
     --
     -- Effects are performed in order of the given (potentially unsorted) fields.
@@ -818,7 +843,7 @@ recBuildPure f = runIdentity $ recBuild @c @Identity @lts @sortedLts ( \ k v -> 
 
 
 -- | Machinery to implement parseJSON
-class RecJsonParse (lts :: [*]) where
+class RecJsonParse (lts :: [Type]) where
     recJsonParse :: Int -> Object -> Parser (Rec lts)
 
 instance RecJsonParse '[] where
@@ -835,7 +860,7 @@ instance
         do let lbl :: FldProxy l
                lbl = FldProxy
            rest <- recJsonParse initSize obj
-           (v :: t) <- obj .: T.pack (symbolVal lbl)
+           (v :: t) <- obj .: jsonKey (symbolVal lbl)
            pure $ unsafeRCons (lbl := v) rest
 
 -- | Conversion helper to bring a Haskell type to a record. Note that the
